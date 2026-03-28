@@ -100,3 +100,4 @@ export function NavBar({ activeTab, onTabChange, postCount, insightCount }) {
     </nav>
   );
 }
+window.NavBar = NavBar;
