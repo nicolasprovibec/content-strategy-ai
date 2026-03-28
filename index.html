@@ -269,10 +269,7 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
         <Field label="Nom ou marque" value={name} onChange={setName} placeholder="Ex : Nicolas Dupont"/>
         <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={3}/>
         <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants" rows={3}/>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
-          <Btn onClick={()=>{if(isValid)onSave({name,vision,context});}} disabled={!isValid}>Sauvegarder</Btn>
-          <Btn variant="secondary" onClick={handleGenAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
-        </div>
+        
       </div>
       <div style={{padding:"2rem",background:C.gray50,display:"flex",flexDirection:"column",gap:12,overflowY:"auto"}}>
         <p style={{fontSize:11,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:"0.06em"}}>Comment ça marche</p>
@@ -292,7 +289,7 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
 }
 
 // ─── AXES TAB ──────────────────────────────────────────────────────
-function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onAxesGenerated,profile,showToast,onGoRoadmap,onGoCreer}) {
+function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onDeleteAxis,onAxesGenerated,profile,showToast,onGoRoadmap,onGoCreer}) {
   const [mode,    setMode]    = useState("select");
   const [marked,  setMarked]  = useState([]);
   const [filter,  setFilter]  = useState("all");
@@ -927,7 +924,11 @@ function AppShell() {
       <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
       <main style={{flex:1,overflow:"hidden"}}>
         {activeTab==="profil"   && <ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
+        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={id=>{
+  saveAxesSessions(p=>p.map(s=>({...s,axes:s.axes.filter(a=>a.id!==id)})).filter(s=>s.axes.length>0));
+  saveSelectedAxes(p=>p.filter(a=>a.id!==id));
+  saveFavAxes(p=>p.filter(x=>x!==id));
+}} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
         {activeTab==="roadmap"  && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
         {activeTab==="creer"    && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
         {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
