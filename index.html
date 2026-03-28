@@ -396,12 +396,14 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
             </div>
         }
 
-        {selectedAxes.length>0&&mode==="select"&&(
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
-            <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
-            <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
-          </div>
-        )}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
+  {selectedAxes.length>0&&mode==="select"&&(
+    <>
+      <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
+      <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
+    </>
+  )}
+</div>
       </div>
     </div>
   );
