@@ -381,20 +381,27 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
   })})).filter(s=>s.axes.length>0);
 
   async function regen(count, existing) {
-    if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
-    setLoading(true);
-    try {
-      const txt = await callClaude(`Profil : ${profile.name} — ${profile.vision}\nAxes existants : ${JSON.stringify(existing.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,`Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`,700);
-      const parsed = parseJSON(txt);
-      if (parsed?.axes?.length) {
-        const withIds = parsed.axes.map(a=>({...a,id:uid()}));
-        onAxesGenerated({id:uid(),label:`Regénération — ${toDay()}`,createdAt:toDay(),axes:count===6?withIds:[...kept,...withIds]});
-        setMarked([]); setMode("select");
-        showToast(`✓ ${parsed.axes.length} axe(s) générés`);
-      } else showToast("⚠️ Format inattendu");
-    } catch(e) { showToast("⚠️ "+e.message); }
-    setLoading(false);
-  }
+  if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
+  setLoading(true);
+  try {
+    const txt = await callClaude(
+      `Profil : ${profile.name} — ${profile.vision}\nAxes existants à ne pas reproduire : ${JSON.stringify(existing.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,
+      `Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`,
+      700
+    );
+    const parsed = parseJSON(txt);
+    if (parsed?.axes?.length) {
+      const withIds = parsed.axes.map(a=>({...a, id:uid()}));
+      const newAxes = count === 6 ? withIds : [...kept, ...withIds];
+      const session = {id:uid(), label:`Regénération — ${toDay()}`, createdAt:toDay(), axes:newAxes};
+      onAxesGenerated(session);
+      setMarked([]);
+      setMode("select");
+      showToast(`✓ ${parsed.axes.length} axe(s) générés`);
+    } else showToast("⚠️ Format inattendu");
+  } catch(e) { showToast("⚠️ "+e.message); }
+  setLoading(false);
+}
 
   return (
     <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
