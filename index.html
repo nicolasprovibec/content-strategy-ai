@@ -424,11 +424,45 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
           </div>
         )}
         {filteredSessions.length===0&&<Empty icon="🎯" text="Aucun axe trouvé."/>}
-        {filteredSessions.map((session,si)=>(
-          <div key={si} style={{marginBottom:20}}>
-            <div style={{fontSize:11,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-              {session.label}<span style={{background:C.gray100,borderRadius:10,padding:"1px 6px",fontSize:10}}>{session.axes.length}</span>
+       {(() => {
+  // Dédoublonnage par titre
+  const seen = new Set();
+  const uniqueAxes = axesSessions.flatMap(s=>s.axes).filter(a => {
+    if (seen.has(a.title)) return false;
+    seen.add(a.title);
+    return true;
+  }).filter(a => {
+    if (filter==="fav")  return favIds.has(a.id);
+    if (filter==="used") return usedIds.has(a.id);
+    if (filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
+    return true;
+  });
+
+  if (uniqueAxes.length===0) return <Empty icon="🎯" text="Aucun axe trouvé."/>;
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
+      {uniqueAxes.map(a=>{
+        const isSel=usedIds.has(a.id),isFav=favIds.has(a.id),isMk=!!marked.find(x=>x.id===a.id);
+        return (
+          <div key={a.id} onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
+            style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+              <span style={{fontSize:15}}>{a.emoji}</span>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                {mode!=="replace"&&<span onClick={e=>{e.stopPropagation();onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>}
+                {isSel&&mode!=="replace"&&<div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>}
+              </div>
             </div>
+            <p style={{fontSize:12,fontWeight:500,color:isSel?C.navy:C.gray900,marginBottom:2}}>{a.title}</p>
+            <p style={{fontSize:11,color:C.gray400,lineHeight:1.3,marginBottom:6}}>{a.description}</p>
+            <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,display:"inline-block",background:isSel?"#F0FDF4":isFav?"#FEF3C7":C.gray100,color:isSel?"#15803D":isFav?"#92400E":C.gray400}}>{isSel?"✓ Sélectionné":isFav?"★ Favori":""}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+})()}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
               {session.axes.map(a=>{
                 const isSel=usedIds.has(a.id),isFav=favIds.has(a.id),isMk=!!marked.find(x=>x.id===a.id);
