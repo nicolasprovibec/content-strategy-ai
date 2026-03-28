@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Content Strategy AI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Inter, system-ui, sans-serif; background: #f9fafb; }
+  ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ─── 🔑 COLLEZ VOTRE CLÉ API ICI ───────────────────────────────────
+const API_KEY = "sk-ant-VOTRE-CLE-ICI";
+// ───────────────────────────────────────────────────────────────────
+
+const { useState, useEffect, useRef } = React;
+
+const TONES = ["Inspirant","Éducatif","Provocateur","Authentique","Expert"];
+const STYLES = ["Storytelling","Liste / Tips","Opinion tranchée","Étude de cas","Question ouverte"];
+const TABS = ["profil","axes","roadmap","créer","éditeur","optimiser","posts","insights"];
+const ICONS = {profil:"👤",axes:"🎯",roadmap:"🗓",créer:"✦",éditeur:"✏️",optimiser:"⚡",posts:"💾",insights:"📊"};
+
+const LINKEDIN = `Tu es un expert copywriting LinkedIn. Règles :
+- 800 à 1500 caractères, jamais de blocs denses
+- Hook fort sur les 2 premières lignes
+- 1 idée par ligne, sauts de ligne fréquents
+- Ton direct et conversationnel
+- Pas de hashtags dans le corps, max 3 à la fin
+Réponds uniquement avec le texte du post.`;
+
+const OPTIM_AXES = [
+  {id:"hook",label:"🎣 Hook",desc:"Rendre les 2 premières lignes irrésistibles"},
+  {id:"lisibility",label:"👁 Lisibilité",desc:"Aérer, 1 idée par ligne"},
+  {id:"ton",label:"🎙 Ton direct",desc:"Plus conversationnel"},
+  {id:"cta",label:"🚀 Call-to-action",desc:"Punchline finale plus forte"},
+  {id:"shorter",label:"✂️ Raccourcir",desc:"Réduire à l'essentiel"},
+  {id:"longer",label:"📝 Développer",desc:"Enrichir avec un insight"},
+  {id:"punchy",label:"⚡ Percutant",desc:"Ton plus clivant"},
+  {id:"story",label:"📖 Storytelling",desc:"Transformer en récit"},
+];
+
+function uid() { return Date.now().toString(36)+Math.random().toString(36).slice(2); }
+
+function parseJSON(raw) {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch(e) {}
+  let s = raw.replace(/^```json\s*/i,"").replace(/^```\s*/i,"").replace(/\s*```\s*$/,"").trim();
+  try { return JSON.parse(s); } catch(e) {}
+  const a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if (a !== -1 && b !== -1) { try { return JSON.parse(s.slice(a,b+1)); } catch(e) {} }
+  return null;
+}
+
+async function api(userMsg, sys, maxTok) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: maxTok || 1000,
+      system: sys || "",
+      messages: [{role:"user", content: userMsg}]
+    })
+  });
+  if (!res.ok) { const e = await res.json(); throw new Error((e.error && e.error.message) || "Erreur API"); }
+  const d = await res.json();
+  return (d.content && d.content[0] && d.content[0].text) || "";
+}
+
+const SK = "csa_v1";
+function stoSave(data) { try { localStorage.setItem(SK, JSON.stringify(data)); } catch(e) {} }
+function stoLoad() { try { const v = localStorage.getItem(SK); return v ? JSON.parse(v) : null; } catch(e) { return null; } }
+
+// ── UI ────────────────────────────────────────────────────────────
+function Btn({onClick, disabled, children, color, sm}) {
+  const bg = disabled ? "#c7d2fe" : color==="green" ? "#059669" : color==="gray" ? "#f3f4f6" : "#4f46e5";
+  const fg = color==="gray" ? "#374151" : "#fff";
+  return <button onClick={onClick} disabled={!!disabled} style={{padding:sm?"6px 12px":"9px 18px",borderRadius:8,border:"none",cursor:disabled?"not-allowed":"pointer",background:bg,color:fg,fontWeight:600,fontSize:sm?12:13,whiteSpace:"nowrap"}}>{children}</button>;
+}
+function Card({children,style}) {
+  return <div style={{background:"#fff",borderRadius:12,border:"1px solid #e5e7eb",padding:22,marginBottom:16,...style}}>{children}</div>;
+}
+function Field({label,value,onChange,placeholder,rows}) {
+  const s = {width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,boxSizing:"border-box",outline:"none",color:"#111827",fontFamily:"inherit"};
+  return (
+    <div style={{marginBottom:12}}>
+      {label && <div style={{fontSize:13,fontWeight:600,color:"#374151",marginBottom:4}}>{label}</div>}
+      {rows ? <textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{...s,resize:"vertical"}}/> : <input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>}
+    </div>
+  );
+}
+function Tag({label,active,onClick}) {
+  return <span onClick={onClick} style={{display:"inline-block",padding:"5px 12px",borderRadius:20,fontSize:13,border:"1.5px solid "+(active?"#4f46e5":"#e5e7eb"),background:active?"#eef2ff":"#fff",color:active?"#4f46e5":"#6b7280",cursor:"pointer",fontWeight:active?600:400,margin:"3px 3px 3px 0"}}>{label}</span>;
+}
+function Toast({msg}) {
+  if (!msg) return null;
+  return <div style={{position:"fixed",top:16,right:16,background:"#1e1e2e",color:"#fff",padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:9999,maxWidth:280}}>{msg}</div>;
+}
+function Empty({icon,text,btnLabel,onBtn}) {
+  return <div style={{textAlign:"center",padding:"40px 20px"}}><div style={{fontSize:32,marginBottom:10}}>{icon}</div><p style={{color:"#6b7280",fontSize:14,marginBottom:16}}>{text}</p>{onBtn&&<Btn onClick={onBtn}>{btnLabel}</Btn>}</div>;
+}
+function CharCount({n}) {
+  if (!n) return null;
+  const c = n<300?"#ef4444":n<=600?"#f59e0b":n<=1500?"#10b981":"#ef4444";
+  const l = n<300?"Trop court":n<=600?"Court ✓":n<=1500?"Sweet spot ✓":"Trop long";
+  return <span style={{fontSize:11,fontWeight:700,color:c,background:c+"18",padding:"2px 8px",borderRadius:6}}>{n} — {l}</span>;
+}
+
+// ── Éditeur ──────────────────────────────────────────────────────
+function Editeur({onSave}) {
+  const [sub,setSub] = useState("analyse");
+  const [text,setText] = useState("");
+  const [result,setResult] = useState("");
+  const [analysis,setAnalysis] = useState(null);
+  const [mode,setMode] = useState("rewrite");
+  const [busy,setBusy] = useState(false);
+  const [err,setErr] = useState("");
+
+  async function doAnalyze() {
+    if (!text.trim()) return;
+    setBusy(true); setErr("");
+    try {
+      const sys = `Analyse ce post LinkedIn. Réponds UNIQUEMENT en JSON valide.
+Format: {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}`;
+      const raw = await api(text, sys, 700);
+      const p = parseJSON(raw);
+      if (p) setAnalysis(p); else setErr("Réponse invalide, réessayez.");
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  async function doOptimize() {
+    if (!text.trim()) return;
+    setBusy(true); setErr("");
+    try {
+      const instrs = {rewrite:"Réécris entièrement ce post.",improve:"Améliore en gardant l'original.",shorter:"Raccourcis à 300-600 caractères.",punchier:"Rends plus percutant, renforce hook et punchline."};
+      const raw = await api(instrs[mode]+"\n\nPost :\n"+text, LINKEDIN, 1200);
+      setResult(raw); setSub("optimiser");
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontWeight:700,fontSize:15}}>✏️ Votre post</div>
+          <CharCount n={text.length}/>
+        </div>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Collez votre post ici…" rows={8} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,resize:"vertical",boxSizing:"border-box",outline:"none",fontFamily:"inherit",lineHeight:1.7}}/>
+      </Card>
+      <div style={{display:"flex",gap:4,background:"#f3f4f6",padding:4,borderRadius:10,marginBottom:16,width:"fit-content"}}>
+        {["analyse","optimiser"].map(k=>(
+          <button key={k} onClick={()=>setSub(k)} style={{padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:sub===k?"#fff":"transparent",color:sub===k?"#4f46e5":"#6b7280",fontWeight:sub===k?700:500,fontSize:13,boxShadow:sub===k?"0 1px 3px rgba(0,0,0,0.1)":"none"}}>
+            {k==="analyse"?"🔍 Analyse":"⚡ Optimiser"}
+          </button>
+        ))}
+      </div>
+      {err && <div style={{color:"#dc2626",fontSize:13,marginBottom:12,background:"#fee2e2",padding:"8px 12px",borderRadius:8}}>⚠️ {err}</div>}
+      {sub==="analyse" && (
+        <div>
+          <Btn onClick={doAnalyze} disabled={!text.trim()||busy}>{busy?"Analyse…":"🔍 Analyser"}</Btn>
+          {analysis && (
+            <Card style={{marginTop:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontWeight:700,fontSize:15}}>Résultats</div>
+                <div style={{fontSize:28,fontWeight:800,color:analysis.score>=7?"#10b981":analysis.score>=5?"#f59e0b":"#ef4444"}}>{analysis.score}<span style={{fontSize:14,color:"#9ca3af"}}>/10</span></div>
+              </div>
+              {["hook","structure","ton","longueur"].map(k=>{
+                if (!analysis[k]) return null;
+                const n=analysis[k].note||0, c=n>=7?"#10b981":n>=5?"#f59e0b":"#ef4444";
+                const labels={hook:"🎣 Hook",structure:"📐 Structure",ton:"🎙 Ton",longueur:"📏 Longueur"};
+                return <div key={k} style={{marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:13,fontWeight:600}}>{labels[k]}</span><span style={{fontSize:13,fontWeight:700,color:c}}>{n}/10</span></div>
+                  <div style={{height:5,background:"#f3f4f6",borderRadius:10}}><div style={{height:5,borderRadius:10,width:(n*10)+"%",background:c}}/></div>
+                  {analysis[k].comment && <div style={{fontSize:12,color:"#6b7280",marginTop:3}}>{analysis[k].comment}</div>}
+                </div>;
+              })}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:16}}>
+                {analysis.points_forts&&analysis.points_forts.length>0&&<div><div style={{fontSize:12,fontWeight:700,color:"#10b981",marginBottom:6}}>✅ Points forts</div>{analysis.points_forts.map((p,i)=><div key={i} style={{fontSize:12,color:"#374151",marginBottom:4,paddingLeft:10,borderLeft:"2px solid #10b981"}}>{p}</div>)}</div>}
+                {analysis.points_faibles&&analysis.points_faibles.length>0&&<div><div style={{fontSize:12,fontWeight:700,color:"#ef4444",marginBottom:6}}>⚠️ À améliorer</div>{analysis.points_faibles.map((p,i)=><div key={i} style={{fontSize:12,color:"#374151",marginBottom:4,paddingLeft:10,borderLeft:"2px solid #ef4444"}}>{p}</div>)}</div>}
+              </div>
+              {analysis.recommandations&&analysis.recommandations.length>0&&<div style={{marginTop:16,background:"#eef2ff",borderRadius:8,padding:14}}><div style={{fontSize:13,fontWeight:700,color:"#4f46e5",marginBottom:8}}>💡 Recommandations</div>{analysis.recommandations.map((r,i)=><div key={i} style={{fontSize:13,color:"#374151",marginBottom:6}}>{i+1}. {r}</div>)}</div>}
+              <div style={{marginTop:14}}><Btn color="gray" sm onClick={()=>setSub("optimiser")}>→ Optimiser</Btn></div>
+            </Card>
+          )}
+        </div>
+      )}
+      {sub==="optimiser" && (
+        <div>
+          <Card>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:10}}>Mode</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+              {[{k:"rewrite",l:"↺ Réécrire"},{k:"improve",l:"↗ Améliorer"},{k:"shorter",l:"✂️ Raccourcir"},{k:"punchier",l:"⚡ Percutant"}].map(({k,l})=>(
+                <button key={k} onClick={()=>setMode(k)} style={{padding:"7px 14px",borderRadius:8,border:"2px solid "+(mode===k?"#4f46e5":"#e5e7eb"),cursor:"pointer",fontSize:13,fontWeight:600,background:mode===k?"#eef2ff":"#fff",color:mode===k?"#4f46e5":"#6b7280"}}>{l}</button>
+              ))}
+            </div>
+            <Btn onClick={doOptimize} disabled={!text.trim()||busy}>{busy?"Optimisation…":"✦ Lancer"}</Btn>
+          </Card>
+          {result && <PostBox post={result} onSave={()=>onSave(result)} onRegen={doOptimize} busy={busy} extra={<Btn color="gray" sm onClick={()=>{setText(result);setResult("");}}>→ Utiliser comme base</Btn>}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Optimiseur ──────────────────────────────────────────────────
+function Optimiseur({onSave}) {
+  const [text,setText] = useState("");
+  const [selAxes,setSelAxes] = useState([]);
+  const [prompt,setPrompt] = useState("");
+  const [result,setResult] = useState("");
+  const [busy,setBusy] = useState(false);
+  const [err,setErr] = useState("");
+  const toggle = id => setSelAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const canRun = text.trim()&&(selAxes.length>0||prompt.trim());
+
+  async function run() {
+    setBusy(true); setErr("");
+    try {
+      const axTxt = selAxes.map(id=>{const a=OPTIM_AXES.find(x=>x.id===id);return a?"- "+a.label+": "+a.desc:"";}).filter(Boolean).join("\n");
+      const instr = [axTxt,prompt.trim()].filter(Boolean).join("\n\nInstruction libre:\n");
+      const raw = await api("Optimise ce post:\n\n"+text+"\n\nSelon:\n"+instr, LINKEDIN, 1200);
+      setResult(raw);
+    } catch(e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontWeight:700,fontSize:15}}>⚡ Post à optimiser</div>
+          <CharCount n={text.length}/>
+        </div>
+        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Collez votre post LinkedIn ici…" rows={7} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,resize:"vertical",boxSizing:"border-box",outline:"none",fontFamily:"inherit",lineHeight:1.7}}/>
+      </Card>
+      <Card>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:4}}>🎯 Axes d'optimisation</div>
+        <p style={{margin:"0 0 12px",fontSize:13,color:"#6b7280"}}>Sélectionnez un ou plusieurs axes.</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+          {OPTIM_AXES.map(a=>{
+            const sel=selAxes.includes(a.id);
+            return <div key={a.id} onClick={()=>toggle(a.id)} style={{padding:"10px 12px",borderRadius:10,border:"2px solid "+(sel?"#4f46e5":"#e5e7eb"),background:sel?"#eef2ff":"#fff",cursor:"pointer"}}>
+              <div style={{fontWeight:600,fontSize:13,color:sel?"#4f46e5":"#111827"}}>{a.label}</div>
+              <div style={{fontSize:11,color:"#6b7280"}}>{a.desc}</div>
+            </div>;
+          })}
+        </div>
+        <div style={{borderTop:"1px solid #f3f4f6",paddingTop:14,marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>✍️ Instruction libre</div>
+          <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="Ex: Rends plus adapté à une audience RH…" rows={3} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,resize:"vertical",boxSizing:"border-box",outline:"none",fontFamily:"inherit"}}/>
+        </div>
+        {err && <div style={{color:"#dc2626",fontSize:13,marginBottom:10,background:"#fee2e2",padding:"8px 12px",borderRadius:8}}>⚠️ {err}</div>}
+        <Btn onClick={run} disabled={!canRun||busy}>{busy?"Optimisation…":"⚡ Optimiser"+(selAxes.length>0?" ("+selAxes.length+")":"")}</Btn>
+      </Card>
+      {result && <PostBox post={result} onSave={()=>onSave(result)} onRegen={run} busy={busy} extra={<Btn color="gray" sm onClick={()=>{setText(result);setResult("");}}>→ Utiliser comme base</Btn>}/>}
+    </div>
+  );
+}
+
+// ── PostBox ──────────────────────────────────────────────────────
+function PostBox({post,onSave,onRegen,busy,extra}) {
+  const [copied,setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(post); setCopied(true); setTimeout(()=>setCopied(false),1500); };
+  return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontWeight:700,fontSize:14}}>✦ Post</span><CharCount n={post.length}/></div>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={copy} style={{fontSize:12,color:"#4f46e5",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>{copied?"✓ Copié":"Copier"}</button>
+          <button onClick={onSave} style={{fontSize:12,color:"#059669",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>💾 Sauvegarder</button>
+        </div>
+      </div>
+      <div style={{background:"#f9fafb",borderRadius:8,padding:14,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"#374151",marginBottom:12}}>{post}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <Btn color="gray" sm onClick={onRegen} disabled={busy}>↺ Regénérer</Btn>
+        {extra}
+      </div>
+    </Card>
+  );
+}
+
+// ── AxesMgr ──────────────────────────────────────────────────────
+function AxesMgr({axes,sel,onToggle,busy,onRegen,onRoadmap,onPost}) {
+  const [mode,setMode] = useState("use");
+  const [marked,setMarked] = useState([]);
+  const kept = axes.filter(a=>!marked.find(x=>x.title===a.title));
+  return (
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        <button onClick={()=>{setMode("use");setMarked([]);}} style={{padding:"5px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:mode==="use"?"#4f46e5":"#f3f4f6",color:mode==="use"?"#fff":"#6b7280"}}>✓ Sélectionner</button>
+        <button onClick={()=>{setMode("regen");setMarked([]);}} style={{padding:"5px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,background:mode==="regen"?"#f59e0b":"#f3f4f6",color:mode==="regen"?"#fff":"#6b7280"}}>↺ Remplacer</button>
+      </div>
+      {mode==="use" && <p style={{margin:"0 0 12px",color:"#6b7280",fontSize:13}}><strong>{sel.length}</strong> axe(s) sélectionné(s).</p>}
+      {mode==="regen" && <p style={{margin:"0 0 12px",color:"#92400e",background:"#fef3c7",borderRadius:8,padding:"8px 12px",fontSize:13}}>Marquez les axes à remplacer.{marked.length>0?" "+marked.length+" marqué(s).":""}</p>}
+      <div style={{display:"grid",gap:8,marginBottom:16}}>
+        {axes.map((a,i)=>{
+          if (mode==="use") {
+            const active=!!sel.find(x=>x.title===a.title);
+            return <div key={i} onClick={()=>onToggle(a)} style={{padding:12,borderRadius:10,border:"2px solid "+(active?"#4f46e5":"#e5e7eb"),background:active?"#eef2ff":"#fff",cursor:"pointer",display:"flex",gap:10}}>
+              <div style={{width:20,height:20,borderRadius:"50%",border:"2px solid "+(active?"#4f46e5":"#d1d5db"),background:active?"#4f46e5":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>{active&&<span style={{color:"#fff",fontSize:10,fontWeight:700}}>✓</span>}</div>
+              <div><div style={{fontWeight:600,fontSize:14,marginBottom:2}}>{a.emoji} {a.title}</div><div style={{fontSize:13,color:"#6b7280"}}>{a.description}</div></div>
+            </div>;
+          } else {
+            const mk=!!marked.find(x=>x.title===a.title);
+            const tog=()=>setMarked(p=>p.find(x=>x.title===a.title)?p.filter(x=>x.title!==a.title):[...p,a]);
+            return <div key={i} onClick={tog} style={{padding:12,borderRadius:10,border:"2px solid "+(mk?"#f59e0b":"#e5e7eb"),background:mk?"#fffbeb":"#fff",cursor:"pointer",display:"flex",gap:10}}>
+              <div style={{width:20,height:20,borderRadius:"50%",border:"2px solid "+(mk?"#f59e0b":"#d1d5db"),background:mk?"#f59e0b":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:2}}>{mk&&<span style={{color:"#fff",fontSize:11}}>↺</span>}</div>
+              <div><div style={{fontWeight:600,fontSize:14,marginBottom:2,color:mk?"#92400e":"#111827"}}>{a.emoji} {a.title}{mk&&<span style={{fontSize:11,color:"#f59e0b",marginLeft:6}}>À remplacer</span>}</div><div style={{fontSize:13,color:"#6b7280"}}>{a.description}</div></div>
+            </div>;
+          }
+        })}
+      </div>
+      {mode==="use"&&sel.length>0&&<div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Btn onClick={onRoadmap} disabled={busy==="roadmap"}>{busy==="roadmap"?"Génération…":"→ Roadmap"}</Btn><Btn color="gray" onClick={onPost}>→ Créer un post</Btn></div>}
+      {mode==="regen"&&<div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Btn color="gray" onClick={()=>onRegen(marked.length,kept)} disabled={marked.length===0||busy==="axes"}>{busy==="axes"?"…":"↺ Remplacer "+marked.length+" axe(s)"}</Btn><Btn color="gray" onClick={()=>{setMode("use");setMarked([]);}}>Annuler</Btn></div>}
+    </div>
+  );
+}
+
+// ── MAIN APP ────────────────────────────────────────────────────
+function App() {
+  const [ready,setReady] = useState(false);
+  const [tab,setTab] = useState("profil");
+  const [busy,setBusy] = useState("");
+  const [toastMsg,setToastMsg] = useState("");
+  const [showPicker,setShowPicker] = useState(false);
+  const [showNew,setShowNew] = useState(false);
+  const [showBackup,setShowBackup] = useState(false);
+
+  const [profiles,setProfiles] = useState([]);
+  const [activeId,setActiveId] = useState(null);
+  const [allAxes,setAllAxes] = useState({});
+  const [allSelAxes,setAllSelAxes] = useState({});
+  const [allRoadmaps,setAllRoadmaps] = useState({});
+  const [allPosts,setAllPosts] = useState({});
+  const [allInsights,setAllInsights] = useState({});
+
+  const timer = useRef(null);
+  useEffect(()=>{
+    if (!ready) return;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(()=>{
+      stoSave({profiles,activeId,allAxes,allSelAxes,allRoadmaps,allPosts,allInsights});
+    },600);
+  },[profiles,activeId,allAxes,allSelAxes,allRoadmaps,allPosts,allInsights]);
+
+  useEffect(()=>{
+    const d = stoLoad();
+    if (d) {
+      const pl=d.profiles||[];
+      setProfiles(pl);
+      setActiveId(d.activeId&&pl.find(p=>p.id===d.activeId)?d.activeId:(pl[0]?pl[0].id:null));
+      setAllAxes(d.allAxes||{}); setAllSelAxes(d.allSelAxes||{});
+      setAllRoadmaps(d.allRoadmaps||{}); setAllPosts(d.allPosts||{}); setAllInsights(d.allInsights||{});
+    }
+    setReady(true);
+  },[]);
+
+  function toast(m){setToastMsg(m);setTimeout(()=>setToastMsg(""),2800);}
+
+  const [eName,setEName]=useState(""); const [eVision,setEVision]=useState(""); const [eContext,setEContext]=useState("");
+  const [nName,setNName]=useState(""); const [nVision,setNVision]=useState(""); const [nContext,setNContext]=useState("");
+  const [tone,setTone]=useState(""); const [pStyle,setPStyle]=useState("");
+  const [chosenAxis,setChosenAxis]=useState(null); const [roadmapSug,setRoadmapSug]=useState(null);
+  const [genPost,setGenPost]=useState(""); const [insightPost,setInsightPost]=useState("");
+  const [insightM,setInsightM]=useState({impressions:"",likes:"",comments:""}); const [improved,setImproved]=useState("");
+
+  const AP=profiles.find(p=>p.id===activeId)||null;
+  const axes=allAxes[activeId]||[]; const selAxes=allSelAxes[activeId]||[];
+  const roadmap=allRoadmaps[activeId]||[]; const posts=allPosts[activeId]||[];
+  const insights=allInsights[activeId]||[];
+  const canGen=!!(eName.trim()&&eVision.trim()&&eContext.trim());
+  const months=[...new Set(roadmap.map(w=>w.month))];
+
+  useEffect(()=>{
+    const p=profiles.find(p=>p.id===activeId);
+    if(p){setEName(p.name||"");setEVision(p.vision||"");setEContext(p.context||"");}
+  },[activeId]);
+
+  function createProfile(){
+    if(!nName.trim()) return;
+    const p={id:uid(),name:nName.trim(),vision:nVision.trim(),context:nContext.trim()};
+    setProfiles(prev=>[...prev,p]); setActiveId(p.id);
+    setNName(""); setNVision(""); setNContext(""); setShowNew(false); setTab("profil");
+    toast("✓ Profil créé");
+  }
+  function saveProfile(){
+    setProfiles(prev=>prev.map(p=>p.id===activeId?{...p,name:eName,vision:eVision,context:eContext}:p));
+    toast("✓ Profil sauvegardé");
+  }
+  function deleteProfile(id){
+    setProfiles(prev=>{const next=prev.filter(p=>p.id!==id);setActiveId(next[0]?next[0].id:null);return next;});
+    setShowPicker(false); toast("Profil supprimé");
+  }
+  function switchProfile(id){setActiveId(id);setShowPicker(false);setTab("profil");setGenPost("");setRoadmapSug(null);toast("✓ Profil changé");}
+  function toggleSelAxis(a){
+    setAllSelAxes(prev=>{
+      const cur=prev[activeId]||[];
+      const next=cur.find(x=>x.title===a.title)?cur.filter(x=>x.title!==a.title):[...cur,a];
+      return {...prev,[activeId]:next};
+    });
+  }
+
+  async function doGenAxes(){
+    if(!canGen) return;
+    saveProfile();
+    setBusy("axes"); toast("⏳ Génération des axes…");
+    try {
+      const sys = `Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, sans markdown.
+Format requis exactement : {"axes":[{"title":"...","description":"...","emoji":"..."}]}
+Génère exactement 6 axes de contenu LinkedIn stratégiques en français.`;
+      const raw = await api("Nom: "+eName+"\nVision: "+eVision+"\nContexte: "+eContext, sys, 900);
+      const parsed = parseJSON(raw);
+      if(parsed&&Array.isArray(parsed.axes)&&parsed.axes.length>0){
+        setAllAxes(prev=>({...prev,[activeId]:parsed.axes}));
+        setAllSelAxes(prev=>({...prev,[activeId]:[]}));
+        toast("✓ "+parsed.axes.length+" axes générés !"); setTab("axes");
+      } else { toast("⚠️ Format inattendu, réessayez"); }
+    } catch(e){ toast("⚠️ Erreur: "+e.message); }
+    setBusy("");
+  }
+
+  async function doRegenAxes(count,kept){
+    setBusy("axes"); toast("⏳ Regénération…");
+    try {
+      const sys = `Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après.
+Format: {"axes":[{"title":"...","description":"...","emoji":"..."}]}
+Génère exactement ${count} nouveaux axes LinkedIn en français.`;
+      const raw = await api("Nom: "+eName+"\nVision: "+eVision+"\nNe pas reproduire: "+JSON.stringify(kept.map(a=>a.title)), sys, 700);
+      const parsed = parseJSON(raw);
+      if(parsed&&Array.isArray(parsed.axes)&&parsed.axes.length>0){
+        setAllAxes(prev=>({...prev,[activeId]:[...kept,...parsed.axes]}));
+        toast("✓ "+parsed.axes.length+" axe(s) remplacé(s)");
+      } else { toast("⚠️ Format inattendu, réessayez"); }
+    } catch(e){ toast("⚠️ Erreur: "+e.message); }
+    setBusy("");
+  }
+
+  async function doGenRoadmap(){
+    if(!selAxes.length){toast("⚠️ Sélectionnez au moins un axe");return;}
+    setBusy("roadmap"); toast("⏳ Génération roadmap…");
+    try {
+      const titles=selAxes.map(a=>a.title);
+      const sys = `Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après.
+Format: {"weeks":[{"week":1,"month":"Mois 1","theme":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}
+Génère exactement 12 semaines. S1-4=Mois 1, S5-8=Mois 2, S9-12=Mois 3.`;
+      const raw = await api("Profil: "+eName+" — "+eVision+"\nAxes: "+JSON.stringify(titles)+"\nTons: Inspirant/Éducatif/Provocateur/Authentique/Expert\nStyles: Storytelling/Liste Tips/Opinion tranchée/Étude de cas/Question ouverte", sys, 1800);
+      const parsed = parseJSON(raw);
+      if(parsed&&Array.isArray(parsed.weeks)&&parsed.weeks.length>0){
+        setAllRoadmaps(prev=>({...prev,[activeId]:parsed.weeks}));
+        toast("✓ Roadmap générée !"); setTab("roadmap");
+      } else { toast("⚠️ Format inattendu, réessayez"); }
+    } catch(e){ toast("⚠️ Erreur: "+e.message); }
+    setBusy("");
+  }
+
+  async function doGenPost(){
+    if(!chosenAxis||!tone||!pStyle) return;
+    setBusy("post");
+    try {
+      const sug=roadmapSug?"\nThème suggéré: "+roadmapSug.theme:"";
+      const raw = await api("Profil: "+eName+" — "+eVision+"\nContexte: "+eContext+"\nAxe: "+chosenAxis.title+" — "+chosenAxis.description+"\nTon: "+tone+"\nStyle: "+pStyle+sug, LINKEDIN, 1200);
+      setGenPost(raw);
+    } catch(e){ toast("⚠️ Erreur: "+e.message); }
+    setBusy("");
+  }
+
+  function addPost(content,extra){
+    const entry={id:uid(),content,date:new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}),...(extra||{})};
+    setAllPosts(prev=>({...prev,[activeId]:[entry,...(prev[activeId]||[])]}));
+    toast("💾 Post sauvegardé");
+  }
+
+  async function doImprove(){
+    if(!insightPost.trim()) return;
+    setBusy("insight");
+    try {
+      const hist=insights.slice(0,3).map(i=>"impressions:"+i.impressions+" likes:"+i.likes+" commentaires:"+i.comments).join(" | ");
+      const raw = await api("Post:\n"+insightPost+"\n\nPerf: impressions="+insightM.impressions+", likes="+insightM.likes+", commentaires="+insightM.comments+(hist?"\nHistorique: "+hist:"")+"\n\nAnalyse et génère une version améliorée.", LINKEDIN, 1200);
+      setImproved(raw);
+      const entry={id:uid(),postSnippet:insightPost.slice(0,200),...insightM,date:new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})};
+      setAllInsights(prev=>({...prev,[activeId]:[entry,...(prev[activeId]||[])]}));
+      toast("✓ Analyse enregistrée");
+    } catch(e){ toast("⚠️ Erreur: "+e.message); }
+    setBusy("");
+  }
+
+  function exportData(){
+    const blob=new Blob([JSON.stringify({profiles,activeId,allAxes,allSelAxes,allRoadmaps,allPosts,allInsights},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="csa-backup.json"; a.click(); URL.revokeObjectURL(url);
+    toast("✓ Backup exporté");
+  }
+  function importData(e){
+    const file=e.target.files&&e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      try {
+        const d=JSON.parse(ev.target.result); const pl=d.profiles||[];
+        setProfiles(pl); setActiveId(d.activeId||(pl[0]?pl[0].id:null));
+        setAllAxes(d.allAxes||{}); setAllSelAxes(d.allSelAxes||{});
+        setAllRoadmaps(d.allRoadmaps||{}); setAllPosts(d.allPosts||{}); setAllInsights(d.allInsights||{});
+        setShowBackup(false); toast("✓ Données restaurées");
+      } catch(err){ toast("⚠️ Fichier invalide"); }
+    };
+    reader.readAsText(file);
+  }
+
+  if(!ready) return <div style={{minHeight:"100vh",background:"#f9fafb",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,sans-serif"}}><div style={{textAlign:"center",color:"#6b7280"}}><div style={{fontSize:36,marginBottom:10}}>✦</div><p>Chargement…</p></div></div>;
+
+  const wrap=children=>(
+    <div style={{minHeight:"100vh",background:"#f9fafb",fontFamily:"Inter,system-ui,sans-serif",padding:"24px 16px"}}>
+      <Toast msg={toastMsg}/>
+      <div style={{maxWidth:600,margin:"0 auto"}}>{children}</div>
+    </div>
+  );
+
+  if(showNew) return wrap(<>
+    <button onClick={()=>setShowNew(false)} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:13,marginBottom:16}}>← Retour</button>
+    <Card>
+      <div style={{fontWeight:700,fontSize:17,marginBottom:16}}>Nouveau profil</div>
+      <Field label="Nom / marque" value={nName} onChange={setNName} placeholder="Ex: Marie Dupont"/>
+      <Field label="Vision" value={nVision} onChange={setNVision} placeholder="Ex: Aider les entrepreneurs" rows={3}/>
+      <Field label="Contexte" value={nContext} onChange={setNContext} placeholder="Ex: 5 ans en startup" rows={3}/>
+      <Btn onClick={createProfile} disabled={!nName.trim()}>Créer ce profil</Btn>
+    </Card>
+  </>);
+
+  if(showPicker) return wrap(<>
+    <button onClick={()=>setShowPicker(false)} style={{background:"none",border:"none",color:"#6b7280",cursor:"pointer",fontSize:13,marginBottom:16}}>← Retour</button>
+    <Card>
+      <div style={{fontWeight:700,fontSize:17,marginBottom:14}}>Mes profils</div>
+      <div style={{display:"grid",gap:10,marginBottom:14}}>
+        {profiles.map(p=>(
+          <div key={p.id} style={{padding:14,borderRadius:10,border:"2px solid "+(p.id===activeId?"#4f46e5":"#e5e7eb"),background:p.id===activeId?"#eef2ff":"#fff",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{cursor:"pointer",flex:1}} onClick={()=>switchProfile(p.id)}>
+              <div style={{fontWeight:700,fontSize:14}}>{p.name||"Sans nom"}{p.id===activeId&&<span style={{fontSize:11,color:"#4f46e5",marginLeft:8}}>actif</span>}</div>
+              <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>{(p.vision||"").slice(0,55)}</div>
+            </div>
+            {profiles.length>1&&<button onClick={()=>deleteProfile(p.id)} style={{background:"none",border:"none",color:"#dc2626",cursor:"pointer",fontSize:12,fontWeight:600,marginLeft:10}}>Supprimer</button>}
+          </div>
+        ))}
+      </div>
+      <Btn color="gray" onClick={()=>{setShowPicker(false);setShowNew(true);}}>+ Nouveau profil</Btn>
+    </Card>
+  </>);
+
+  if(profiles.length===0) return wrap(
+    <Card style={{textAlign:"center"}}>
+      <div style={{width:48,height:48,background:"#4f46e5",borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,margin:"0 auto 14px"}}>✦</div>
+      <div style={{fontWeight:700,fontSize:20,marginBottom:8}}>Content Strategy AI</div>
+      <p style={{color:"#6b7280",fontSize:14,marginBottom:20}}>Créez votre premier profil pour démarrer.</p>
+      <div style={{textAlign:"left"}}>
+        <Field label="Nom / marque" value={nName} onChange={setNName} placeholder="Ex: Marie Dupont"/>
+        <Field label="Vision" value={nVision} onChange={setNVision} placeholder="Ex: Aider les entrepreneurs" rows={3}/>
+        <Field label="Contexte" value={nContext} onChange={setNContext} placeholder="Ex: 5 ans en startup" rows={3}/>
+      </div>
+      <Btn onClick={createProfile} disabled={!nName.trim()}>Créer mon profil →</Btn>
+    </Card>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f9fafb",fontFamily:"Inter,system-ui,sans-serif",padding:"20px 12px"}}>
+      <Toast msg={toastMsg}/>
+      {showBackup&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"#fff",borderRadius:16,padding:26,maxWidth:380,width:"100%"}}>
+            <div style={{fontWeight:700,fontSize:16,marginBottom:8}}>💾 Sauvegarde</div>
+            <p style={{fontSize:13,color:"#6b7280",marginBottom:16,lineHeight:1.6}}>Exportez un backup JSON pour ne pas perdre vos données.</p>
+            <div style={{display:"grid",gap:10,marginBottom:14}}>
+              <button onClick={exportData} style={{padding:"12px 14px",borderRadius:10,border:"none",background:"#4f46e5",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",textAlign:"left"}}>⬇️ Exporter<div style={{fontSize:11,opacity:0.8,marginTop:2,fontWeight:400}}>Télécharge csa-backup.json</div></button>
+              <label style={{padding:"12px 14px",borderRadius:10,border:"1.5px dashed #d1d5db",background:"#f9fafb",fontWeight:700,fontSize:13,cursor:"pointer",display:"block",textAlign:"left"}}>⬆️ Importer<div style={{fontSize:11,color:"#6b7280",marginTop:2,fontWeight:400}}>Sélectionnez csa-backup.json</div><input type="file" accept=".json" onChange={importData} style={{display:"none"}}/></label>
+            </div>
+            <button onClick={()=>setShowBackup(false)} style={{width:"100%",padding:10,borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",cursor:"pointer",fontWeight:600,fontSize:13,color:"#6b7280"}}>Fermer</button>
+          </div>
+        </div>
+      )}
+      <div style={{maxWidth:800,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:18,flexWrap:"wrap"}}>
+          <div style={{width:30,height:30,background:"#4f46e5",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>✦</div>
+          <span style={{fontWeight:700,fontSize:15,color:"#111827",flex:1}}>Content Strategy AI</span>
+          <button onClick={()=>setShowPicker(true)} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",cursor:"pointer"}}>
+            <div style={{width:20,height:20,background:"#4f46e5",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10,fontWeight:700}}>{(AP&&AP.name?AP.name[0]:"?").toUpperCase()}</div>
+            <span style={{fontSize:12,fontWeight:600,color:"#111827",maxWidth:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{AP?AP.name:"—"}</span>
+            <span style={{fontSize:10,color:"#9ca3af"}}>▾</span>
+          </button>
+          <button onClick={()=>setShowNew(true)} style={{padding:"5px 10px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",cursor:"pointer",fontSize:12,fontWeight:600,color:"#4f46e5"}}>+ Profil</button>
+          <button onClick={()=>setShowBackup(true)} style={{padding:"5px 10px",borderRadius:10,border:"1.5px solid #e5e7eb",background:"#fff",cursor:"pointer",fontSize:12,color:"#6b7280"}}>💾</button>
+        </div>
+
+        <div style={{display:"flex",gap:2,background:"#f3f4f6",padding:3,borderRadius:12,marginBottom:22,overflowX:"auto"}}>
+          {TABS.map(t=>(
+            <button key={t} onClick={()=>setTab(t)} style={{padding:"6px 10px",borderRadius:8,border:"none",cursor:"pointer",whiteSpace:"nowrap",background:tab===t?"#fff":"transparent",color:tab===t?"#4f46e5":"#6b7280",fontWeight:tab===t?700:500,fontSize:12,boxShadow:tab===t?"0 1px 3px rgba(0,0,0,0.08)":"none"}}>
+              {ICONS[t]} {t.charAt(0).toUpperCase()+t.slice(1)}
+              {t==="posts"&&posts.length>0&&<span style={{background:"#4f46e5",color:"#fff",borderRadius:10,padding:"1px 5px",fontSize:10,marginLeft:3}}>{posts.length}</span>}
+              {t==="insights"&&insights.length>0&&<span style={{background:"#4f46e5",color:"#fff",borderRadius:10,padding:"1px 5px",fontSize:10,marginLeft:3}}>{insights.length}</span>}
+            </button>
+          ))}
+        </div>
+
+        {tab==="profil"&&AP&&(
+          <Card>
+            <div style={{fontWeight:700,fontSize:17,marginBottom:4}}>👤 {AP.name}</div>
+            <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13}}>Ces informations personnalisent tous les contenus.</p>
+            <Field label="Nom / marque" value={eName} onChange={setEName} placeholder="Ex: Marie Dupont"/>
+            <Field label="Vision" value={eVision} onChange={setEVision} placeholder="Votre vision" rows={3}/>
+            <Field label="Contexte" value={eContext} onChange={setEContext} placeholder="Votre contexte" rows={3}/>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <Btn color="green" onClick={saveProfile}>💾 Sauvegarder</Btn>
+              <Btn color="gray" onClick={doGenAxes} disabled={!canGen||busy==="axes"}>{busy==="axes"?"Génération…":axes.length>0?"↺ Regénérer les axes":"→ Générer mes axes"}</Btn>
+            </div>
+          </Card>
+        )}
+
+        {tab==="axes"&&(
+          <Card>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontWeight:700,fontSize:17}}>🎯 Axes</div>
+              {axes.length>0&&<Btn sm color="gray" onClick={doGenAxes} disabled={busy==="axes"}>{busy==="axes"?"…":"↺ Tout regénérer"}</Btn>}
+            </div>
+            {axes.length===0?<Empty icon="🎯" text="Aucun axe généré." btnLabel={canGen?"Générer mes axes":"← Compléter le profil"} onBtn={canGen?doGenAxes:()=>setTab("profil")}/>
+              :<AxesMgr axes={axes} sel={selAxes} onToggle={toggleSelAxis} busy={busy} onRegen={doRegenAxes} onRoadmap={doGenRoadmap} onPost={()=>{setTab("créer");setChosenAxis(selAxes[0]||null);}}/>}
+          </Card>
+        )}
+
+        {tab==="roadmap"&&(
+          roadmap.length===0?<Card><Empty icon="🗓" text={selAxes.length===0?"Sélectionnez d'abord vos axes.":"Aucune roadmap."} btnLabel={selAxes.length>0?(busy==="roadmap"?"Génération…":"Générer la roadmap"):"← Axes"} onBtn={selAxes.length>0?doGenRoadmap:()=>setTab("axes")}/></Card>:
+          <Card>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <div style={{fontWeight:700,fontSize:17}}>🗓 Roadmap 3 mois</div>
+              <Btn sm color="gray" onClick={doGenRoadmap} disabled={busy==="roadmap"}>{busy==="roadmap"?"…":"↺ Regénérer"}</Btn>
+            </div>
+            <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13}}>Cliquez "Créer →" pour pré-remplir le générateur.</p>
+            {months.map(month=>(
+              <div key={month} style={{marginBottom:20}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#4f46e5",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>{month}</div>
+                <div style={{display:"grid",gap:8}}>
+                  {roadmap.filter(w=>w.month===month).map((w,i)=>(
+                    <div key={i} style={{display:"grid",gridTemplateColumns:"48px 1fr auto",gap:12,padding:12,background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb",alignItems:"center"}}>
+                      <div style={{textAlign:"center"}}><div style={{fontSize:10,color:"#9ca3af",fontWeight:700}}>S.</div><div style={{fontSize:20,fontWeight:800,color:"#4f46e5"}}>{w.week}</div></div>
+                      <div>
+                        <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{w.theme}</div>
+                        <div style={{fontSize:12,color:"#6b7280"}}><span style={{background:"#eef2ff",color:"#4f46e5",borderRadius:6,padding:"1px 6px",fontWeight:600,marginRight:5}}>{w.axis}</span>{w.tone} · {w.style}</div>
+                        <div style={{fontSize:12,color:"#374151",fontStyle:"italic",marginTop:2}}>"{w.hook}"</div>
+                      </div>
+                      <Btn sm onClick={()=>{setChosenAxis(selAxes.find(a=>a.title===w.axis)||selAxes[0]||axes[0]||null);setTone(TONES.includes(w.tone)?w.tone:"");setPStyle(STYLES.includes(w.style)?w.style:"");setRoadmapSug(w);setGenPost("");setTab("créer");}}>Créer →</Btn>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </Card>
+        )}
+
+        {tab==="créer"&&(
+          !canGen?<Card><Empty icon="✦" text="Complétez votre profil." btnLabel="← Profil" onBtn={()=>setTab("profil")}/></Card>:
+          <div>
+            {roadmapSug&&<div style={{background:"#eef2ff",border:"1px solid #c7d2fe",borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:13,color:"#4f46e5"}}><strong>S{roadmapSug.week}:</strong> {roadmapSug.theme} · {roadmapSug.tone} · {roadmapSug.style}</span><button onClick={()=>setRoadmapSug(null)} style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",fontSize:16}}>✕</button></div>}
+            <Card>
+              <div style={{fontWeight:700,fontSize:17,marginBottom:14}}>✦ Créer un post</div>
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Axe</div>
+                {selAxes.length>0?<div style={{display:"grid",gap:8}}>{selAxes.map((a,i)=><div key={i} onClick={()=>setChosenAxis(a)} style={{padding:"9px 12px",borderRadius:8,border:"2px solid "+(chosenAxis&&chosenAxis.title===a.title?"#4f46e5":"#e5e7eb"),background:chosenAxis&&chosenAxis.title===a.title?"#eef2ff":"#fff",cursor:"pointer",fontSize:13,fontWeight:600}}>{a.emoji} {a.title}</div>)}</div>
+                  :<p style={{fontSize:13,color:"#9ca3af"}}>Aucun axe. <span onClick={()=>setTab("axes")} style={{color:"#4f46e5",cursor:"pointer",fontWeight:600}}>→ Axes</span></p>}
+              </div>
+              <div style={{marginBottom:14}}><div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Ton</div><div>{TONES.map(t=><Tag key={t} label={t} active={tone===t} onClick={()=>setTone(t)}/>)}</div></div>
+              <div style={{marginBottom:18}}><div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Style</div><div>{STYLES.map(s=><Tag key={s} label={s} active={pStyle===s} onClick={()=>setPStyle(s)}/>)}</div></div>
+              <Btn onClick={doGenPost} disabled={!chosenAxis||!tone||!pStyle||busy==="post"}>{busy==="post"?"Génération…":"✦ Générer le post"}</Btn>
+            </Card>
+            {genPost&&<PostBox post={genPost} onSave={()=>addPost(genPost,{axis:chosenAxis?chosenAxis.title:"",tone,style:pStyle})} onRegen={doGenPost} busy={busy==="post"} extra={<><Btn color="gray" sm onClick={()=>setTab("éditeur")}>✏️ Éditer</Btn><Btn color="gray" sm onClick={()=>setTab("optimiser")}>⚡ Optimiser</Btn></>}/>}
+          </div>
+        )}
+
+        {tab==="éditeur"&&<Editeur onSave={c=>addPost(c,{axis:"Édité"})}/>}
+        {tab==="optimiser"&&<Optimiseur onSave={c=>addPost(c,{axis:"Optimisé"})}/>}
+
+        {tab==="posts"&&(
+          <Card>
+            <div style={{fontWeight:700,fontSize:17,marginBottom:4}}>💾 Posts sauvegardés</div>
+            <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13}}>{posts.length} post(s)</p>
+            {posts.length===0?<Empty icon="📝" text="Aucun post." btnLabel="→ Créer" onBtn={()=>setTab("créer")}/>:
+              posts.map(p=>(
+                <div key={p.id} style={{background:"#f9fafb",borderRadius:10,border:"1px solid #e5e7eb",padding:14,marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+                    <div>{p.axis&&<span style={{fontSize:12,fontWeight:700,color:"#4f46e5",background:"#eef2ff",padding:"2px 8px",borderRadius:10,marginRight:6}}>{p.axis}</span>}<span style={{fontSize:11,color:"#9ca3af"}}>{p.date}</span></div>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:"#4f46e5",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Copier</button>
+                      <button onClick={()=>setAllPosts(prev=>({...prev,[activeId]:(prev[activeId]||[]).filter(x=>x.id!==p.id)}))} style={{fontSize:11,color:"#dc2626",background:"none",border:"none",cursor:"pointer"}}>Suppr.</button>
+                    </div>
+                  </div>
+                  <div style={{fontSize:13,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:90,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 55%, transparent)"}}>{p.content}</div>
+                </div>
+              ))
+            }
+          </Card>
+        )}
+
+        {tab==="insights"&&(
+          <div>
+            <Card>
+              <div style={{fontWeight:700,fontSize:17,marginBottom:4}}>📊 Insights J+7</div>
+              <p style={{margin:"0 0 16px",color:"#6b7280",fontSize:13}}>{insights.length>0?"L'IA tient compte de vos "+insights.length+" analyse(s).":"Renseignez vos performances."}</p>
+              <Field label="Le post publié" value={insightPost} onChange={setInsightPost} placeholder="Collez votre post LinkedIn ici…" rows={4}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
+                {[{l:"👁 Impressions",k:"impressions"},{l:"❤️ Likes",k:"likes"},{l:"💬 Commentaires",k:"comments"}].map(({l,k})=>(
+                  <div key={k}><div style={{fontSize:12,fontWeight:600,marginBottom:4}}>{l}</div><input value={insightM[k]} onChange={e=>setInsightM(m=>({...m,[k]:e.target.value}))} placeholder="0" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1.5px solid #e5e7eb",fontSize:13,boxSizing:"border-box",outline:"none"}}/></div>
+                ))}
+              </div>
+              <Btn onClick={doImprove} disabled={!insightPost.trim()||busy==="insight"}>{busy==="insight"?"Analyse…":"✦ Analyser & améliorer"}</Btn>
+            </Card>
+            {improved&&<Card><div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><span style={{fontWeight:700,fontSize:14}}>🚀 Post amélioré</span><div style={{display:"flex",gap:8}}><button onClick={()=>navigator.clipboard.writeText(improved)} style={{fontSize:12,color:"#4f46e5",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>Copier</button><button onClick={()=>addPost(improved,{axis:"Amélioré"})} style={{fontSize:12,color:"#059669",background:"none",border:"none",cursor:"pointer",fontWeight:600}}>💾</button></div></div><div style={{background:"#f9fafb",borderRadius:8,padding:14,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{improved}</div></Card>}
+            {insights.length>0&&<Card>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:12}}>Historique</div>
+              {insights.map(ins=>{
+                const eng=ins.impressions?((((+ins.likes||0)+(+ins.comments||0))/ +ins.impressions)*100).toFixed(1):null;
+                return <div key={ins.id} style={{background:"#f9fafb",borderRadius:10,border:"1px solid #e5e7eb",padding:12,marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}><span style={{fontSize:12,color:"#9ca3af"}}>{ins.date}</span><button onClick={()=>setAllInsights(prev=>({...prev,[activeId]:(prev[activeId]||[]).filter(i=>i.id!==ins.id)}))} style={{fontSize:11,color:"#dc2626",background:"none",border:"none",cursor:"pointer"}}>Suppr.</button></div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:8}}>
+                    {[{l:"👁",v:ins.impressions},{l:"❤️",v:ins.likes},{l:"💬",v:ins.comments},{l:"📈",v:eng?eng+"%":"—"}].map(({l,v})=>(
+                      <div key={l} style={{background:"#fff",borderRadius:8,padding:"7px 4px",textAlign:"center",border:"1px solid #e5e7eb"}}><div style={{fontSize:11,color:"#9ca3af"}}>{l}</div><div style={{fontSize:14,fontWeight:700}}>{v||"—"}</div></div>
+                    ))}
+                  </div>
+                </div>;
+              })}
+            </Card>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
