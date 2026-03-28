@@ -151,6 +151,10 @@ function AuthProvider({children}) {
 
   useEffect(() => {
     netlifyIdentity.init({logo:false});
+console.log("Netlify Identity initialisé");
+netlifyIdentity.on("error", err => console.error("Erreur Identity :", err));
+netlifyIdentity.on("open",  () => console.log("Widget ouvert"));
+netlifyIdentity.on("close", () => console.log("Widget fermé"));
     const cur = netlifyIdentity.currentUser();
     if (cur) { isAllowed(cur) ? setUser(cur) : (netlifyIdentity.logout(), setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(" / ")}.`)); }
     setLoading(false);
