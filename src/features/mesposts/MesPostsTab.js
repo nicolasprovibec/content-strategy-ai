@@ -128,3 +128,4 @@ export function MesPostsTab({ posts, onDelete }) {
     </div>
   );
 }
+window.MesPostsTab = MesPostsTab;
