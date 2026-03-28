@@ -186,3 +186,4 @@ export function ProfilTab({ profile, onSave, onGenAxes, showToast, onAxesGenerat
     </div>
   );
 }
+window.ProfilTab = ProfilTab;
