@@ -25,7 +25,11 @@
 
 <script>
   // Initialisation Netlify Identity AVANT React
-  netlifyIdentity.init({ logo: false });
+netlifyIdentity.init({ logo: false });
+// Intercepte les tokens de récupération dans l'URL
+if (window.location.hash && window.location.hash.includes('recovery_token')) {
+  netlifyIdentity.open();
+}
 </script>
 
 <script type="text/babel">
