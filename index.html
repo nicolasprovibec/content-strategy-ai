@@ -462,7 +462,7 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
       const txt = await callClaude(
         `Profil : ${profile?.name||""} — ${profile?.vision||""}\nAxes : ${JSON.stringify(selectedAxes.map(a=>a.title))}\nGénère une roadmap LinkedIn de ${dur} mois (${dur*4} semaines) en français. Pour chaque semaine : week, month, theme, detail, axis, tone, style, hook.`,
         `Réponds UNIQUEMENT en JSON valide. Format : {"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}`,
-        2000
+        4000
       );
       const parsed = parseJSON(txt);
       if (parsed?.weeks?.length) {
