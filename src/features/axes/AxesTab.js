@@ -244,3 +244,4 @@ export function AxesTab({
     </div>
   );
 }
+window.AxesTab = AxesTab;
