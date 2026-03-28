@@ -298,3 +298,4 @@ export function InsightsTab({ insights, posts, onAddInsight, onDeleteInsight, sh
     </div>
   );
 }
+window.InsightsTab = InsightsTab;
