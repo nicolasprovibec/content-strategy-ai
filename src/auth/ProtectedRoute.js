@@ -30,3 +30,4 @@ export function ProtectedRoute({ children }) {
 
   return children;
 }
+window.ProtectedRoute = ProtectedRoute;
