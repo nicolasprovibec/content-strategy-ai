@@ -17,7 +17,6 @@
 </head>
 <body>
 <div id="root"></div>
-
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
 <script>
   netlifyIdentity.init({ logo: false });
@@ -28,21 +27,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-// ─── CONSTANTES ────────────────────────────────────────────────────
 const ALLOWED_DOMAINS = ["@margoconseil.com", "@codebusters.fr", "@margo-group.com", "@margo.com"];
-const LINKEDIN_RULES  = `Tu es un expert copywriting LinkedIn. Règles absolues :
-- 800 à 1500 caractères, jamais de blocs denses
-- Hook fort sur les 2 premières lignes (court, clivant, zéro jargon)
-- 1 idée par ligne, sauts de ligne fréquents
-- Ton direct, conversationnel, position assumée
-- Pas de hashtags dans le corps, max 3 à la toute fin
-Réponds uniquement avec le texte du post, sans commentaire.`;
-const TONES     = ["Inspirant","Éducatif","Provocateur","Authentique","Expert"];
-const STYLES    = ["Storytelling","Liste / Tips","Opinion tranchée","Étude de cas","Question ouverte"];
+const LINKEDIN_RULES = "Tu es un expert copywriting LinkedIn. Règles absolues :\n- 800 à 1500 caractères, jamais de blocs denses\n- Hook fort sur les 2 premières lignes (court, clivant, zéro jargon)\n- 1 idée par ligne, sauts de ligne fréquents\n- Ton direct, conversationnel, position assumée\n- Pas de hashtags dans le corps, max 3 à la toute fin\nRéponds uniquement avec le texte du post, sans commentaire.";
+const TONES = ["Inspirant","Éducatif","Provocateur","Authentique","Expert"];
+const STYLES = ["Storytelling","Liste / Tips","Opinion tranchée","Étude de cas","Question ouverte"];
 const DURATIONS = [3,6,9,12,15,18];
 const OPTIM_AXES = [
   {id:"hook",  label:"Hook",         desc:"Rendre les 2 premières lignes irrésistibles"},
@@ -74,7 +65,6 @@ const C = {
   gray400:"#94A3B8", gray600:"#475569", gray900:"#0F172A",
 };
 
-// ─── HELPERS ───────────────────────────────────────────────────────
 const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const toDay = () => new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
 
@@ -84,93 +74,123 @@ function parseJSON(txt) {
   try { return JSON.parse(txt.replace(/```json|```/g,"").trim()); } catch {}
   const m = txt.match(/\{[\s\S]*\}/);
   if (m) try { return JSON.parse(m[0]); } catch {}
+  const a = txt.match(/\[[\s\S]*\]/);
+  if (a) try { return { weeks: JSON.parse(a[0]) }; } catch {}
   return null;
 }
 
-async function callClaude(userMsg, system="", maxTokens=1200) {
-  let user = netlifyIdentity.currentUser();
+async function callClaude(userMsg, system, maxTokens) {
+  if (!system) system = "";
+  if (!maxTokens) maxTokens = 1200;
+  var user = netlifyIdentity.currentUser();
   if (!user) throw new Error("Utilisateur non authentifié.");
-  try { await user.jwt(true); user = netlifyIdentity.currentUser(); } catch {}
-  const token = user?.token?.access_token || null;
+  try { await user.jwt(true); user = netlifyIdentity.currentUser(); } catch(e) {}
+  var token = user && user.token && user.token.access_token ? user.token.access_token : null;
   if (!token) throw new Error("Token invalide.");
-  const res = await fetch("/.netlify/functions/claude", {
-    method:"POST",
-    headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
-    body: JSON.stringify({system, max_tokens:maxTokens, messages:[{role:"user",content:userMsg}]}),
+  var res = await fetch("/.netlify/functions/claude", {
+    method: "POST",
+    headers: {"Content-Type":"application/json","Authorization":"Bearer " + token},
+    body: JSON.stringify({system:system, max_tokens:maxTokens, messages:[{role:"user",content:userMsg}]}),
   });
-  if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e?.error?.message||`Erreur ${res.status}`); }
-  const d = await res.json();
-  return d?.content?.[0]?.text || "";
+  if (!res.ok) {
+    var e = await res.json().catch(function(){return {};});
+    throw new Error((e && e.error && e.error.message) ? e.error.message : "Erreur " + res.status);
+  }
+  var d = await res.json();
+  return d && d.content && d.content[0] && d.content[0].text ? d.content[0].text : "";
 }
 
-// ─── STORAGE ───────────────────────────────────────────────────────
 const store = {
-  get: (key, fb=null) => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):fb; } catch { return fb; } },
-  set: (key, val)     => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} },
-  clear: ()           => Object.values(SK).forEach(k=>localStorage.removeItem(k)),
+  get: function(key, fb) { if(fb===undefined)fb=null; try{var v=localStorage.getItem(key);return v?JSON.parse(v):fb;}catch(e){return fb;} },
+  set: function(key, val) { try{localStorage.setItem(key,JSON.stringify(val));}catch(e){} },
+  clear: function() { Object.values(SK).forEach(function(k){localStorage.removeItem(k);}); },
 };
 
-// ─── UI PRIMITIVES ─────────────────────────────────────────────────
-function Btn({onClick,disabled=false,children,variant="primary",sm=false,full=false,style:sx}) {
-  const V = {
+function Btn(props) {
+  var onClick=props.onClick, disabled=props.disabled||false, children=props.children, variant=props.variant||"primary", sm=props.sm||false, full=props.full||false, sx=props.style;
+  var V = {
     primary:   {background:disabled?"#C7D2FE":C.navy, color:"#fff", border:"none"},
-    secondary: {background:C.gray100, color:C.gray600, border:`0.5px solid ${C.gray200}`},
-    ghost:     {background:"transparent", color:C.navy, border:`0.5px solid ${C.navyMid}`},
+    secondary: {background:C.gray100, color:C.gray600, border:"0.5px solid "+C.gray200},
+    ghost:     {background:"transparent", color:C.navy, border:"0.5px solid "+C.navyMid},
     danger:    {background:"#FEF2F2", color:C.red, border:"0.5px solid #FCA5A5"},
   };
-  return <button onClick={onClick} disabled={disabled} style={{display:"inline-flex",alignItems:"center",justifyContent:full?"center":"flex-start",gap:6,padding:sm?"6px 12px":"9px 18px",borderRadius:8,fontWeight:500,fontSize:sm?12:13,cursor:disabled?"not-allowed":"pointer",whiteSpace:"nowrap",fontFamily:"inherit",width:full?"100%":"auto",opacity:disabled?0.6:1,...(V[variant]||V.primary),...sx}}>{children}</button>;
+  var style = Object.assign({display:"inline-flex",alignItems:"center",justifyContent:full?"center":"flex-start",gap:6,padding:sm?"6px 12px":"9px 18px",borderRadius:8,fontWeight:500,fontSize:sm?12:13,cursor:disabled?"not-allowed":"pointer",whiteSpace:"nowrap",fontFamily:"inherit",width:full?"100%":"auto",opacity:disabled?0.6:1}, V[variant]||V.primary, sx||{});
+  return <button onClick={onClick} disabled={disabled} style={style}>{children}</button>;
 }
-function Card({children,style:sx}) {
-  return <div style={{background:"#fff",borderRadius:10,border:`0.5px solid ${C.gray200}`,padding:"1rem",marginBottom:10,...sx}}>{children}</div>;
+function Card(props) {
+  var sx = props.style || {};
+  return <div style={Object.assign({background:"#fff",borderRadius:10,border:"0.5px solid "+C.gray200,padding:"1rem",marginBottom:10},sx)}>{props.children}</div>;
 }
-function Field({label,value,onChange,placeholder,rows,type="text"}) {
-  const s = {width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,outline:"none",color:C.gray900,fontFamily:"inherit",background:C.gray50,resize:rows?"vertical":undefined,lineHeight:rows?1.6:undefined};
-  return <div style={{marginBottom:12}}>{label&&<div style={{fontSize:12,fontWeight:500,color:C.gray600,marginBottom:4}}>{label}</div>}{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={s}/>:<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>}</div>;
+function Field(props) {
+  var label=props.label, value=props.value, onChange=props.onChange, placeholder=props.placeholder, rows=props.rows, type=props.type||"text";
+  var s = {width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,outline:"none",color:C.gray900,fontFamily:"inherit",background:C.gray50,resize:rows?"vertical":undefined,lineHeight:rows?1.6:undefined};
+  return (
+    <div style={{marginBottom:12}}>
+      {label && <div style={{fontSize:12,fontWeight:500,color:C.gray600,marginBottom:4}}>{label}</div>}
+      {rows ? <textarea value={value} onChange={function(e){onChange(e.target.value);}} placeholder={placeholder} rows={rows} style={s}/> : <input type={type} value={value} onChange={function(e){onChange(e.target.value);}} placeholder={placeholder} style={s}/>}
+    </div>
+  );
 }
-function Tag({label,active,onClick}) {
-  return <span onClick={onClick} style={{display:"inline-block",padding:"5px 12px",borderRadius:20,fontSize:12,margin:"3px 3px 3px 0",cursor:"pointer",border:`1.5px solid ${active?C.navy:C.gray200}`,background:active?C.navyLight:"#fff",color:active?C.navy:C.gray600,fontWeight:active?500:400}}>{label}</span>;
+function Tag(props) {
+  return <span onClick={props.onClick} style={{display:"inline-block",padding:"5px 12px",borderRadius:20,fontSize:12,margin:"3px 3px 3px 0",cursor:"pointer",border:"1.5px solid "+(props.active?C.navy:C.gray200),background:props.active?C.navyLight:"#fff",color:props.active?C.navy:C.gray600,fontWeight:props.active?500:400}}>{props.label}</span>;
 }
-function CharBadge({n}) {
+function CharBadge(props) {
+  var n = props.n;
   if (!n) return null;
-  const color = n<300?C.red:n<=600?C.amber:n<=1500?C.green:C.red;
-  const label = n<300?"Trop court":n<=600?"Court ✓":n<=1500?"Sweet spot ✓":"Trop long";
-  return <span style={{fontSize:11,fontWeight:500,color,background:`${color}18`,padding:"2px 8px",borderRadius:6}}>{n} — {label}</span>;
+  var color = n<300?C.red:n<=600?C.amber:n<=1500?C.green:C.red;
+  var label = n<300?"Trop court":n<=600?"Court ✓":n<=1500?"Sweet spot ✓":"Trop long";
+  return <span style={{fontSize:11,fontWeight:500,color:color,background:color+"18",padding:"2px 8px",borderRadius:6}}>{n} — {label}</span>;
 }
-function Toast({message}) {
-  if (!message) return null;
-  return <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:C.gray900,color:"#fff",padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:500,maxWidth:300,pointerEvents:"none"}}>{message}</div>;
+function Toast(props) {
+  if (!props.message) return null;
+  return <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:C.gray900,color:"#fff",padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:500,maxWidth:300,pointerEvents:"none"}}>{props.message}</div>;
 }
-function Empty({icon,text,btnLabel,onBtn}) {
-  return <div style={{textAlign:"center",padding:"48px 24px"}}><div style={{fontSize:36,marginBottom:12}}>{icon}</div><p style={{color:C.gray400,fontSize:14,marginBottom:16}}>{text}</p>{onBtn&&<Btn onClick={onBtn}>{btnLabel}</Btn>}</div>;
+function Empty(props) {
+  return (
+    <div style={{textAlign:"center",padding:"48px 24px"}}>
+      <div style={{fontSize:36,marginBottom:12}}>{props.icon}</div>
+      <p style={{color:C.gray400,fontSize:14,marginBottom:16}}>{props.text}</p>
+      {props.onBtn && <Btn onClick={props.onBtn}>{props.btnLabel}</Btn>}
+    </div>
+  );
 }
-function ScoreBar({label,note}) {
-  const color=(note||0)>=7?C.green:(note||0)>=5?C.amber:C.red;
-  return <div style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:500}}>{label}</span><span style={{fontSize:12,fontWeight:500,color}}>{note}/10</span></div><div style={{height:4,background:C.gray100,borderRadius:10}}><div style={{height:4,borderRadius:10,width:`${(note||0)*10}%`,background:color}}/></div></div>;
+function ScoreBar(props) {
+  var note = props.note || 0;
+  var color = note>=7?C.green:note>=5?C.amber:C.red;
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+        <span style={{fontSize:12,fontWeight:500}}>{props.label}</span>
+        <span style={{fontSize:12,fontWeight:500,color:color}}>{note}/10</span>
+      </div>
+      <div style={{height:4,background:C.gray100,borderRadius:10}}>
+        <div style={{height:4,borderRadius:10,width:(note*10)+"%",background:color}}/>
+      </div>
+    </div>
+  );
 }
 
-// ─── AUTH ──────────────────────────────────────────────────────────
-const AuthContext = React.createContext(null);
-function AuthProvider({children}) {
-  const [user,    setUser]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  function isAllowed(u) { return ALLOWED_DOMAINS.some(d=>u?.email?.endsWith(d)); }
+var AuthContext = React.createContext(null);
+function AuthProvider(props) {
+  var _s1 = useState(null); var user = _s1[0]; var setUser = _s1[1];
+  var _s2 = useState(true); var loading = _s2[0]; var setLoading = _s2[1];
+  var _s3 = useState(null); var error = _s3[0]; var setError = _s3[1];
+  function isAllowed(u) { return ALLOWED_DOMAINS.some(function(d){return u && u.email && u.email.endsWith(d);}); }
   function logout() { netlifyIdentity.logout(); store.clear(); setUser(null); }
-  useEffect(()=>{
-    const cur = netlifyIdentity.currentUser();
-    if (cur) { isAllowed(cur)?setUser(cur):(netlifyIdentity.logout(),setError("Domaine non autorisé.")); }
+  useEffect(function(){
+    var cur = netlifyIdentity.currentUser();
+    if (cur) { if(isAllowed(cur)){setUser(cur);}else{netlifyIdentity.logout();setError("Domaine non autorisé.");} }
     setLoading(false);
-    netlifyIdentity.on("login", u=>{ netlifyIdentity.close(); isAllowed(u)?(setUser(u),setError(null)):(netlifyIdentity.logout(),setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(", ")}.`)); });
-    netlifyIdentity.on("logout", ()=>setUser(null));
-    return ()=>{ netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
+    netlifyIdentity.on("login", function(u){ netlifyIdentity.close(); if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Accès réservé aux adresses : "+ALLOWED_DOMAINS.join(", "));} });
+    netlifyIdentity.on("logout", function(){ setUser(null); });
+    return function(){ netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
   },[]);
-  return <AuthContext.Provider value={{user,loading,error,logout}}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{user:user,loading:loading,error:error,logout:logout}}>{props.children}</AuthContext.Provider>;
 }
 function useAuth() { return React.useContext(AuthContext); }
 
-// ─── LOGIN ─────────────────────────────────────────────────────────
 function LoginPage() {
-  const {error} = useAuth();
+  var auth = useAuth(); var error = auth.error;
   return (
     <div style={{height:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
       <div style={{background:C.navy,padding:"2.5rem",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
@@ -181,57 +201,53 @@ function LoginPage() {
         <div>
           <p style={{fontSize:26,fontWeight:500,color:"#fff",lineHeight:1.35,marginBottom:12}}>Votre stratégie LinkedIn,<br/>pilotée par l'IA.</p>
           <p style={{fontSize:13,color:"rgba(255,255,255,0.55)",lineHeight:1.6,marginBottom:28}}>Axes de contenu, roadmap éditoriale, génération et optimisation de posts.</p>
-          {["Génération de posts calibrés à votre marque","Roadmap éditoriale jusqu'à 18 mois","Analyse et optimisation post publication"].map(p=>(
+          {["Génération de posts calibrés à votre marque","Roadmap éditoriale jusqu'à 18 mois","Analyse et optimisation post publication"].map(function(p){return (
             <div key={p} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
               <div style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><div style={{width:6,height:6,borderRadius:"50%",background:"rgba(255,255,255,0.6)"}}/></div>
               <span style={{fontSize:13,color:"rgba(255,255,255,0.65)"}}>{p}</span>
             </div>
-          ))}
+          );})}
         </div>
         <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Accès sur invitation uniquement</p>
       </div>
       <div style={{background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2.5rem"}}>
         <p style={{fontSize:22,fontWeight:500,color:C.gray900,marginBottom:6}}>Connexion</p>
         <p style={{fontSize:13,color:C.gray400,marginBottom:32,textAlign:"center"}}>Accédez à votre espace de création</p>
-        <button onClick={()=>netlifyIdentity.open("login")} style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:12,border:`0.5px solid ${C.gray200}`,borderRadius:8,background:C.navy,cursor:"pointer",fontSize:14,fontWeight:500,color:"#fff",fontFamily:"inherit"}}>
-          Se connecter
-        </button>
-        {error&&<div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>{error}</div>}
+        <button onClick={function(){netlifyIdentity.open("login");}} style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",border:"0.5px solid "+C.gray200,borderRadius:8,background:C.navy,cursor:"pointer",fontSize:14,fontWeight:500,color:"#fff",fontFamily:"inherit"}}>Se connecter</button>
+        {error && <div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>{error}</div>}
         <p style={{marginTop:24,fontSize:12,color:C.gray400,textAlign:"center"}}>Accès sur invitation — contactez votre administrateur</p>
       </div>
     </div>
   );
 }
 
-// ─── PROTECTED ROUTE ───────────────────────────────────────────────
-function ProtectedRoute({children}) {
-  const {user,loading} = useAuth();
-  if (loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.gray400}}>Chargement…</div>;
-  if (!user)   return <LoginPage/>;
-  return children;
+function ProtectedRoute(props) {
+  var auth = useAuth();
+  if (auth.loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.gray400}}>Chargement…</div>;
+  if (!auth.user) return <LoginPage/>;
+  return props.children;
 }
 
-// ─── NAVBAR ────────────────────────────────────────────────────────
-function NavBar({activeTab,onTabChange,postCount,insightCount}) {
-  const {user,logout} = useAuth();
-  const initials    = user?.email?.[0]?.toUpperCase()??"?";
-  const displayName = user?.user_metadata?.full_name||user?.email||"Profil";
+function NavBar(props) {
+  var auth = useAuth();
+  var initials = auth.user && auth.user.email ? auth.user.email[0].toUpperCase() : "?";
+  var displayName = (auth.user && auth.user.user_metadata && auth.user.user_metadata.full_name) ? auth.user.user_metadata.full_name : (auth.user ? auth.user.email : "Profil");
   return (
-    <nav style={{height:56,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,background:"#fff",flexShrink:0}}>
+    <nav style={{height:56,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,background:"#fff",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:9,flexShrink:0,marginRight:10}}>
         <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
         <div><div style={{fontSize:13,fontWeight:500,color:C.gray900,lineHeight:1}}>Content Strategy AI</div><div style={{fontSize:10,color:C.gray400,marginTop:1}}>Powered by Claude</div></div>
       </div>
       <div style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
-        {NAV_ITEMS.map(item=>{
-          const isOn=activeTab===item.id;
-          const cnt=item.id==="mesposts"?postCount:item.id==="insights"?insightCount:0;
-          return <button key={item.id} onClick={()=>onTabChange(item.id)} style={{padding:"5px 12px",borderRadius:20,fontSize:12,background:isOn?C.navyLight:"transparent",color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,whiteSpace:"nowrap",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}>
+        {NAV_ITEMS.map(function(item){
+          var isOn = props.activeTab === item.id;
+          var cnt = item.id==="mesposts" ? props.postCount : item.id==="insights" ? props.insightCount : 0;
+          return <button key={item.id} onClick={function(){props.onTabChange(item.id);}} style={{padding:"5px 12px",borderRadius:20,fontSize:12,background:isOn?C.navyLight:"transparent",color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,whiteSpace:"nowrap",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}>
             {item.label}{cnt>0&&<span style={{background:C.navy,color:"#fff",borderRadius:10,padding:"1px 5px",fontSize:9}}>{cnt}</span>}
           </button>;
         })}
       </div>
-      <button onClick={logout} title="Se déconnecter" style={{display:"flex",alignItems:"center",gap:7,padding:"5px 10px",borderRadius:10,border:`0.5px solid ${C.gray200}`,background:"#fff",cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
+      <button onClick={auth.logout} title="Se déconnecter" style={{display:"flex",alignItems:"center",gap:7,padding:"5px 10px",borderRadius:10,border:"0.5px solid "+C.gray200,background:"#fff",cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
         <div style={{width:24,height:24,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:10,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>{initials}</div>
         <span style={{fontSize:12,color:C.gray900,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</span>
       </button>
@@ -239,36 +255,31 @@ function NavBar({activeTab,onTabChange,postCount,insightCount}) {
   );
 }
 
-// ─── PROFIL TAB ────────────────────────────────────────────────────
-function ProfilTab({profile,onSave,showToast,onAxesGenerated,onGoAxes}) {
-  const [name,    setName]    = useState(profile?.name||"");
-  const [vision,  setVision]  = useState(profile?.vision||"");
-  const [context, setContext] = useState(profile?.context||"");
-  const [loading, setLoading] = useState(false);
-  useEffect(()=>{setName(profile?.name||"");setVision(profile?.vision||"");setContext(profile?.context||"");},[profile]);
-  const isValid = name.trim()&&vision.trim()&&context.trim();
-
+function ProfilTab(props) {
+  var _n=useState(props.profile&&props.profile.name?props.profile.name:""); var name=_n[0]; var setName=_n[1];
+  var _v=useState(props.profile&&props.profile.vision?props.profile.vision:""); var vision=_v[0]; var setVision=_v[1];
+  var _c=useState(props.profile&&props.profile.context?props.profile.context:""); var context=_c[0]; var setContext=_c[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
+  useEffect(function(){ setName(props.profile&&props.profile.name?props.profile.name:""); setVision(props.profile&&props.profile.vision?props.profile.vision:""); setContext(props.profile&&props.profile.context?props.profile.context:""); },[props.profile]);
+  var isValid = name.trim()&&vision.trim()&&context.trim();
   async function handleGenAxes() {
     if (!isValid) return;
-    onSave({name,vision,context});
+    props.onSave({name:name,vision:vision,context:context});
     setLoading(true);
     try {
-      const txt = await callClaude(
-        `Nom : ${name}\nVision : ${vision}\nContexte : ${context}\nGénère 6 axes de contenu LinkedIn stratégiques en français.`,
-        `Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.`,
-        900
-      );
-      const parsed = parseJSON(txt);
-      if (parsed?.axes?.length) {
-        onAxesGenerated({id:uid(),label:`Génération — ${toDay()}`,createdAt:toDay(),axes:parsed.axes.map(a=>({...a,id:uid()}))});
-      } else showToast("⚠️ Format inattendu, réessayez");
-    } catch(e) { showToast("⚠️ "+e.message); }
+      var prompt = "Nom : " + name + "\nVision : " + vision + "\nContexte : " + context + "\nGénère 6 axes de contenu LinkedIn stratégiques en français.";
+      var sys = 'Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.';
+      var txt = await callClaude(prompt, sys, 900);
+      var parsed = parseJSON(txt);
+      if (parsed && parsed.axes && parsed.axes.length) {
+        props.onAxesGenerated({id:uid(),label:"Génération — "+toDay(),createdAt:toDay(),axes:parsed.axes.map(function(a){return Object.assign({},a,{id:uid()});})});
+      } else props.showToast("⚠️ Format inattendu, réessayez");
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-      <div style={{padding:"2rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,display:"flex",flexDirection:"column",overflowY:"auto"}}>
+      <div style={{padding:"2rem",background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflowY:"auto"}}>
         <p style={{fontSize:11,color:C.gray400,marginBottom:4}}>Étape 1 sur 1</p>
         <p style={{fontSize:18,fontWeight:500,color:C.gray900,marginBottom:4}}>Votre profil</p>
         <p style={{fontSize:12,color:C.gray400,marginBottom:24,lineHeight:1.5}}>Ces informations personnalisent tous les contenus générés.</p>
@@ -276,18 +287,18 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated,onGoAxes}) {
         <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={3}/>
         <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants" rows={3}/>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
-          <Btn onClick={()=>{if(isValid)onSave({name,vision,context});}} disabled={!isValid}>Sauvegarder</Btn>
+          <Btn onClick={function(){if(isValid)props.onSave({name:name,vision:vision,context:context});}} disabled={!isValid}>Sauvegarder</Btn>
           <Btn variant="secondary" onClick={handleGenAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
         </div>
       </div>
       <div style={{padding:"2rem",background:C.gray50,display:"flex",flexDirection:"column",gap:12,overflowY:"auto"}}>
         <p style={{fontSize:11,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:"0.06em"}}>Comment ça marche</p>
-        {[{n:"1",t:"Remplissez votre profil",d:"Nom, vision, contexte. 2 minutes chrono."},{n:"2",t:"Vos axes sont générés",d:"6 thèmes LinkedIn calibrés sur votre marque."},{n:"3",t:"Créez et planifiez",d:"Roadmap, posts, analyse, optimisation."}].map(s=>(
-          <div key={s.n} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,padding:"10px 12px",display:"flex",gap:10,alignItems:"flex-start"}}>
+        {[{n:"1",t:"Remplissez votre profil",d:"Nom, vision, contexte. 2 minutes chrono."},{n:"2",t:"Vos axes sont générés",d:"6 thèmes LinkedIn calibrés sur votre marque."},{n:"3",t:"Créez et planifiez",d:"Roadmap, posts, analyse, optimisation."}].map(function(s){return (
+          <div key={s.n} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:"10px 12px",display:"flex",gap:10,alignItems:"flex-start"}}>
             <div style={{width:22,height:22,borderRadius:"50%",background:C.navyLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:500,color:C.navy}}>{s.n}</span></div>
             <div><p style={{fontSize:12,fontWeight:500,color:C.gray900,marginBottom:2}}>{s.t}</p><p style={{fontSize:11,color:C.gray400,lineHeight:1.4}}>{s.d}</p></div>
           </div>
-        ))}
+        );})}
         <div style={{marginTop:"auto",background:C.navy,borderRadius:10,padding:"10px 14px"}}>
           <p style={{fontSize:10,color:"rgba(255,255,255,0.5)",marginBottom:2}}>Données stockées localement</p>
           <p style={{fontSize:11,color:"#fff",fontWeight:500}}>Aucun envoi sans action de votre part</p>
@@ -297,143 +308,94 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated,onGoAxes}) {
   );
 }
 
-// ─── AXES TAB ──────────────────────────────────────────────────────
-function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onDeleteAxis,onAxesGenerated,profile,showToast,onGoRoadmap,onGoCreer}) {
-  const [mode,    setMode]    = useState("select");
-  const [marked,  setMarked]  = useState([]);
-  const [filter,  setFilter]  = useState("all");
-  const [loading, setLoading] = useState(false);
-
-  const allAxes = axesSessions.flatMap(s=>s.axes);
-  const usedIds = new Set(selectedAxes.map(a=>a.id));
-  const favIds  = new Set(favAxes);
-
-  // Dédoublonnage par titre — garde le plus récent
-  const seen = new Set();
-  const uniqueAxes = allAxes.filter(a=>{
-    if (seen.has(a.title)) return false;
-    seen.add(a.title);
+function AxesTab(props) {
+  var _m=useState("select"); var mode=_m[0]; var setMode=_m[1];
+  var _mk=useState([]); var marked=_mk[0]; var setMarked=_mk[1];
+  var _f=useState("all"); var filter=_f[0]; var setFilter=_f[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
+  var allAxes = props.axesSessions.flatMap(function(s){return s.axes;});
+  var usedIds = new Set(props.selectedAxes.map(function(a){return a.id;}));
+  var favIds  = new Set(props.favAxes);
+  var seen = new Set();
+  var uniqueAxes = allAxes.filter(function(a){ if(seen.has(a.title))return false; seen.add(a.title); return true; });
+  var filteredAxes = uniqueAxes.filter(function(a){
+    if(filter==="fav")  return favIds.has(a.id);
+    if(filter==="used") return usedIds.has(a.id);
+    if(filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
     return true;
   });
-
-  const filteredAxes = uniqueAxes.filter(a=>{
-    if (filter==="fav")  return favIds.has(a.id);
-    if (filter==="used") return usedIds.has(a.id);
-    if (filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
-    return true;
-  });
-
   async function regen(count, toKeep) {
-    if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
+    if (!props.profile) { props.showToast("⚠️ Complétez votre profil d'abord"); return; }
     setLoading(true);
     try {
-      const txt = await callClaude(
-        `Profil : ${profile.name} — ${profile.vision}\nAxes existants à ne pas reproduire : ${JSON.stringify(toKeep.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,
-        `Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`,
-        700
-      );
-      const parsed = parseJSON(txt);
-      if (parsed?.axes?.length) {
-        const withIds = parsed.axes.map(a=>({...a,id:uid()}));
-        // Pour "regénérer 6 nouveaux" : on remplace tout
-        // Pour "remplacer X axes" : on garde toKeep + nouveaux
-        const newAxes = count===6 ? withIds : [...toKeep,...withIds];
-        onAxesGenerated({id:uid(),label:`Regénération — ${toDay()}`,createdAt:toDay(),axes:newAxes});
+      var prompt = "Profil : " + props.profile.name + " — " + props.profile.vision + "\nAxes existants à ne pas reproduire : " + JSON.stringify(toKeep.map(function(a){return a.title;})) + "\nGénère " + count + " nouveaux axes LinkedIn différents en français.";
+      var sys = 'Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ' + count + ' items.';
+      var txt = await callClaude(prompt, sys, 900);
+      var parsed = parseJSON(txt);
+      if (parsed && parsed.axes && parsed.axes.length) {
+        var withIds = parsed.axes.map(function(a){return Object.assign({},a,{id:uid()});});
+        var newAxes = count===6 ? withIds : toKeep.concat(withIds);
+        props.onAxesGenerated({id:uid(),label:"Regénération — "+toDay(),createdAt:toDay(),axes:newAxes});
         setMarked([]); setMode("select");
-        showToast(`✓ ${parsed.axes.length} axe(s) générés`);
-      } else showToast("⚠️ Format inattendu");
-    } catch(e) { showToast("⚠️ "+e.message); }
+        props.showToast("✓ " + parsed.axes.length + " axe(s) générés");
+      } else props.showToast("⚠️ Format inattendu");
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
       <div style={{maxWidth:760,margin:"0 auto"}}>
-
-        {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:4}}>
-            {[{k:"all",l:`Tous (${uniqueAxes.length})`},{k:"fav",l:"Favoris"},{k:"used",l:"Sélectionnés"},{k:"new",l:"Nouveaux"}].map(({k,l})=>(
-              <button key={k} onClick={()=>setFilter(k)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===k?C.navyLight:C.gray100,color:filter===k?C.navy:C.gray600,border:filter===k?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===k?500:400,fontFamily:"inherit"}}>{l}</button>
-            ))}
+            {[{k:"all",l:"Tous ("+uniqueAxes.length+")"},{k:"fav",l:"Favoris"},{k:"used",l:"Sélectionnés"},{k:"new",l:"Nouveaux"}].map(function(x){return (
+              <button key={x.k} onClick={function(){setFilter(x.k);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===x.k?C.navyLight:C.gray100,color:filter===x.k?C.navy:C.gray600,border:filter===x.k?"0.5px solid "+C.navyMid:"0.5px solid "+C.gray200,fontWeight:filter===x.k?500:400,fontFamily:"inherit"}}>{x.l}</button>
+            );})}
           </div>
           <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            <button
-              onClick={()=>{setMode(m=>m==="replace"?"select":"replace");setMarked([]);}}
-              style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:`0.5px solid ${mode==="replace"?C.amber:C.gray200}`,fontFamily:"inherit"}}
-            >
+            <button onClick={function(){setMode(function(m){return m==="replace"?"select":"replace";}); setMarked([]);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:"0.5px solid "+(mode==="replace"?C.amber:C.gray200),fontFamily:"inherit"}}>
               {mode==="replace"?"✕ Annuler":"↺ Remplacer des axes"}
             </button>
-            <Btn sm variant="secondary" onClick={()=>regen(6,[])} disabled={loading}>
-              {loading?"…":"↺ Regénérer 6 nouveaux"}
-            </Btn>
+            <Btn sm variant="secondary" onClick={function(){regen(6,[]);}} disabled={loading}>{loading?"…":"↺ Regénérer 6 nouveaux"}</Btn>
           </div>
         </div>
-
-        {/* Bandeau remplacement */}
         {mode==="replace"&&marked.length>0&&(
-          <div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) sélectionné(s) à remplacer</span>
-            <Btn sm variant="secondary"
-              onClick={()=>regen(marked.length, uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))}
-              disabled={loading}
-              style={{marginLeft:"auto"}}
-            >
-              {loading?"…":`↺ Remplacer ${marked.length} axe(s)`}
-            </Btn>
+          <div style={{background:"#FEF3C7",border:"0.5px solid "+C.amber,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) à remplacer</span>
+            <Btn sm variant="secondary" onClick={function(){regen(marked.length, uniqueAxes.filter(function(a){return !marked.find(function(x){return x.id===a.id;});}));}} disabled={loading} style={{marginLeft:"auto"}}>{loading?"…":"↺ Remplacer "+marked.length+" axe(s)"}</Btn>
           </div>
         )}
-
-        {/* Grille */}
         {filteredAxes.length===0
           ? <Empty icon="🎯" text="Aucun axe trouvé."/>
           : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
-              {filteredAxes.map(a=>{
-                const isSel=usedIds.has(a.id), isFav=favIds.has(a.id), isMk=!!marked.find(x=>x.id===a.id);
+              {filteredAxes.map(function(a){
+                var isSel=usedIds.has(a.id), isFav=favIds.has(a.id), isMk=!!marked.find(function(x){return x.id===a.id;});
                 return (
                   <div key={a.id}
-                    onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
-                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer",position:"relative"}}
-                  >
+                    onClick={function(){if(mode==="replace"){setMarked(function(p){return p.find(function(x){return x.id===a.id;})?p.filter(function(x){return x.id!==a.id;}):[...p,a];});}else{props.onToggleAxis(a);}}}
+                    style={{border:"0.5px solid "+(isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200),borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                       <span style={{fontSize:15}}>{a.emoji}</span>
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                        {mode!=="replace"&&(
-                          <span onClick={e=>{e.stopPropagation();onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>
-                        )}
-                        {isSel&&mode!=="replace"&&(
-                          <div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>
-                        )}
-                        {isMk&&(
-                          <span style={{fontSize:10,background:C.amber,color:"#fff",borderRadius:4,padding:"1px 5px"}}>↺</span>
-                        )}
-                        {mode!=="replace"&&(
-                          <button
-                            onClick={e=>{e.stopPropagation();onDeleteAxis(a.id);}}
-                            style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}
-                            title="Supprimer"
-                          >✕</button>
-                        )}
+                        {mode!=="replace"&&<span onClick={function(e){e.stopPropagation();props.onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>}
+                        {isSel&&mode!=="replace"&&<div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>}
+                        {isMk&&<span style={{fontSize:10,background:C.amber,color:"#fff",borderRadius:4,padding:"1px 5px"}}>↺</span>}
+                        {mode!=="replace"&&<button onClick={function(e){e.stopPropagation();props.onDeleteAxis(a.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}} title="Supprimer">✕</button>}
                       </div>
                     </div>
                     <p style={{fontSize:12,fontWeight:500,color:isSel?C.navy:C.gray900,marginBottom:2}}>{a.title}</p>
                     <p style={{fontSize:11,color:C.gray400,lineHeight:1.3,marginBottom:6}}>{a.description}</p>
-                    <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,display:"inline-block",background:isSel?"#F0FDF4":isFav?"#FEF3C7":C.gray100,color:isSel?"#15803D":isFav?"#92400E":C.gray400}}>
-                      {isSel?"✓ Sélectionné":isFav?"★ Favori":""}
-                    </span>
+                    <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,display:"inline-block",background:isSel?"#F0FDF4":isFav?"#FEF3C7":C.gray100,color:isSel?"#15803D":isFav?"#92400E":C.gray400}}>{isSel?"✓ Sélectionné":isFav?"★ Favori":""}</span>
                   </div>
                 );
               })}
             </div>
         }
-
-        {/* Boutons d'action */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
-          {selectedAxes.length>0&&mode==="select"&&(
-            <>
-              <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
-              <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
-            </>
+          {props.selectedAxes.length>0&&mode==="select"&&(
+            <React.Fragment>
+              <Btn onClick={props.onGoRoadmap}>→ Générer la roadmap</Btn>
+              <Btn variant="secondary" onClick={props.onGoCreer}>→ Créer un post directement</Btn>
+            </React.Fragment>
           )}
         </div>
       </div>
@@ -441,92 +403,86 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
   );
 }
 
-// ─── ROADMAP TAB ───────────────────────────────────────────────────
-function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadmap,onDeleteRoadmap,onRoadmapGenerated,onGoCreer,pubWeeks,selectedAxes,profile,showToast}) {
-  const [dur,         setDur]         = useState(6);
-  const [openQ,       setOpenQ]       = useState([0]);
-  const [loading,     setLoading]     = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0];
-  const weeks    = activeRm?.weeks||[];
-  const months   = [...new Set(weeks.map(w=>w.month))];
-  const quarters = [];
-  for(let i=0;i<months.length;i+=3){
-    const qM=months.slice(i,i+3),qW=weeks.filter(w=>qM.includes(w.month));
-    quarters.push({index:i/3,months:qM,weeks:qW,done:qW.filter(w=>pubWeeks.has(w.week)).length,current:qW.find(w=>!pubWeeks.has(w.week))});
+function RoadmapTab(props) {
+  var _d=useState(6); var dur=_d[0]; var setDur=_d[1];
+  var _oq=useState([0]); var openQ=_oq[0]; var setOpenQ=_oq[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
+  var _sb=useState(false); var sidebarOpen=_sb[0]; var setSidebarOpen=_sb[1];
+  var activeRm = props.roadmaps.find(function(r){return r.id===props.activeRmId;}) || props.roadmaps[0];
+  var weeks = activeRm && activeRm.weeks ? activeRm.weeks : [];
+  var monthSet = []; weeks.forEach(function(w){ if(monthSet.indexOf(w.month)===-1) monthSet.push(w.month); });
+  var quarters = [];
+  for(var i=0;i<monthSet.length;i+=3){
+    var qM=monthSet.slice(i,i+3);
+    var qW=weeks.filter(function(w){return qM.indexOf(w.month)!==-1;});
+    var done=qW.filter(function(w){return props.pubWeeks.has(w.week);}).length;
+    var current=qW.find(function(w){return !props.pubWeeks.has(w.week);});
+    quarters.push({index:i/3,months:qM,weeks:qW,done:done,current:current});
   }
   async function handleGen() {
-    if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
-    setLoading(true); showToast("⏳ Génération en cours…");
+    if (!props.selectedAxes.length) { props.showToast("⚠️ Sélectionnez des axes d'abord"); return; }
+    setLoading(true); props.showToast("⏳ Génération en cours…");
     try {
-  const axes = JSON.stringify(selectedAxes.map(a=>a.title));
-  const prompt = "Tu es un expert en stratégie de contenu LinkedIn.\n"
-    + "Profil : " + (profile?.name||"") + " — " + (profile?.vision||"") + "\n"
-    + "Axes disponibles : " + axes + "\n"
-    + "Duree : " + dur + " mois soit " + (dur*4) + " semaines.\n"
-    + "Génère une roadmap LinkedIn en JSON. Chaque semaine doit avoir :\n"
-    + "- week : numéro de 1 à " + (dur*4) + "\n"
-    + "- month : Mois 1 à Mois " + dur + "\n"
-    + "- theme : titre accrocheur du post\n"
-    + "- detail : angle en 1 phrase\n"
-    + "- axis : un des axes fournis (exact)\n"
-    + "- tone : un parmi Inspirant, Éducatif, Provocateur, Authentique, Expert\n"
-    + "- style : un parmi Storytelling, Liste / Tips, Opinion tranchée, Étude de cas, Question ouverte\n"
-    + "- hook : première ligne d'accroche\n"
-    + "Réponds UNIQUEMENT avec le JSON, sans texte avant ou après.";
-  const sys = '{"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}';
-  const txt = await callClaude(prompt, sys, 4000);
-  let parsed = parseJSON(txt);
-  if (parsed && !parsed.weeks && Array.isArray(parsed)) parsed = {weeks:parsed};
-  if (parsed?.weeks?.length) {
-    onRoadmapGenerated({id:uid(),name:"Roadmap "+dur+"m — "+toDay(),createdAt:toDay(),weeks:parsed.weeks,dur});
-  } else {
-    console.log("Réponse brute :", txt);
-    showToast("⚠️ Format inattendu — voir console");
+      var axesTitles = JSON.stringify(props.selectedAxes.map(function(a){return a.title;}));
+      var nbWeeks = dur * 4;
+      var prompt = "Profil : " + (props.profile&&props.profile.name?props.profile.name:"") + " — " + (props.profile&&props.profile.vision?props.profile.vision:"") + "\n"
+        + "Axes : " + axesTitles + "\n"
+        + "Génère une roadmap LinkedIn de " + dur + " mois (" + nbWeeks + " semaines) en français.\n"
+        + "Répartis les axes équitablement. Pour chaque semaine fournis : week (1 à " + nbWeeks + "), month (Mois 1 à Mois " + dur + "), theme, detail, axis, tone, style, hook.\n"
+        + "Réponds UNIQUEMENT avec un objet JSON valide.";
+      var sys = "Format JSON attendu : {\"weeks\":[{\"week\":1,\"month\":\"Mois 1\",\"theme\":\"...\",\"detail\":\"...\",\"axis\":\"...\",\"tone\":\"...\",\"style\":\"...\",\"hook\":\"...\"}]}";
+      var txt = await callClaude(prompt, sys, 4000);
+      console.log("Réponse roadmap :", txt.substring(0,200));
+      var parsed = parseJSON(txt);
+      if (parsed && !parsed.weeks && Array.isArray(parsed)) parsed = {weeks:parsed};
+      if (parsed && parsed.weeks && parsed.weeks.length) {
+        props.onRoadmapGenerated({id:uid(),name:"Roadmap "+dur+"m — "+toDay(),createdAt:toDay(),weeks:parsed.weeks,dur:dur});
+      } else props.showToast("⚠️ Format inattendu — voir console");
+    } catch(e) { props.showToast("⚠️ "+e.message); }
+    setLoading(false);
   }
-} catch(e) { showToast("⚠️ "+e.message); }
   return (
     <div style={{display:"grid",gridTemplateColumns:sidebarOpen?"220px 1fr":"44px 1fr",height:"calc(100vh - 56px)",transition:"grid-template-columns 0.2s"}}>
-      <div style={{background:C.gray50,borderRight:`0.5px solid ${C.gray200}`,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
-        <button onClick={()=>setSidebarOpen(o=>!o)} style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:sidebarOpen?"0 10px 8px":"0 auto 8px",border:"none"}}>
+      <div style={{background:C.gray50,borderRight:"0.5px solid "+C.gray200,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
+        <button onClick={function(){setSidebarOpen(function(o){return !o;});}} style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:sidebarOpen?"0 10px 8px":"0 auto 8px",border:"none"}}>
           <span style={{color:"#fff",fontSize:14,transform:sidebarOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>›</span>
         </button>
-        {roadmaps.map((rm,i)=>(
-          <div key={rm.id} onClick={()=>onSetActive(rm.id)} style={{borderRadius:6,border:`0.5px solid ${rm.id===activeRmId?C.navy:C.gray200}`,background:rm.id===activeRmId?C.navyLight:"#fff",cursor:"pointer",display:"flex",alignItems:"center",...(sidebarOpen?{padding:"8px 10px",margin:"0 8px",gap:8}:{width:28,height:28,justifyContent:"center",margin:"0 auto"})}}>
+        {props.roadmaps.map(function(rm,i){return (
+          <div key={rm.id} onClick={function(){props.onSetActive(rm.id);}} style={{borderRadius:6,border:"0.5px solid "+(rm.id===props.activeRmId?C.navy:C.gray200),background:rm.id===props.activeRmId?C.navyLight:"#fff",cursor:"pointer",display:"flex",alignItems:"center",...(sidebarOpen?{padding:"8px 10px",margin:"0 8px",gap:8}:{width:28,height:28,justifyContent:"center",margin:"0 auto"})}}>
             {sidebarOpen
-              ?<><div style={{flex:1,minWidth:0}}><p style={{fontSize:12,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rm.name}</p><p style={{fontSize:10,color:C.gray400}}>{rm.weeks?.length||0} sem.</p></div><button onClick={e=>{e.stopPropagation();onDeleteRoadmap(rm.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer"}}>✕</button></>
-              :<span style={{fontSize:9,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray600}}>R{i+1}</span>
+              ? <React.Fragment><div style={{flex:1,minWidth:0}}><p style={{fontSize:12,fontWeight:500,color:rm.id===props.activeRmId?C.navy:C.gray900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rm.name}</p><p style={{fontSize:10,color:C.gray400}}>{rm.weeks?rm.weeks.length:0} sem.</p></div><button onClick={function(e){e.stopPropagation();props.onDeleteRoadmap(rm.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer"}}>✕</button></React.Fragment>
+              : <span style={{fontSize:9,fontWeight:500,color:rm.id===props.activeRmId?C.navy:C.gray600}}>R{i+1}</span>
             }
           </div>
-        ))}
+        );})}
         {sidebarOpen
-          ?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>
-          :<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:`0.5px dashed ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>
+          ? <Btn sm onClick={props.onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>
+          : <div onClick={props.onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:"0.5px dashed "+C.gray200,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>
         }
       </div>
       <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{height:48,background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
-          {activeRm&&<><span style={{fontSize:12,fontWeight:500,color:C.gray900}}>{activeRm.name}</span><span style={{fontSize:10,padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:20,fontWeight:500}}>Active</span></>}
+        <div style={{height:48,background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
+          {activeRm&&<React.Fragment><span style={{fontSize:12,fontWeight:500,color:C.gray900}}>{activeRm.name}</span><span style={{fontSize:10,padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:20,fontWeight:500}}>Active</span></React.Fragment>}
           <span style={{fontSize:11,color:C.gray600,marginLeft:8}}>Durée :</span>
           <div style={{display:"flex",gap:3}}>
-            {DURATIONS.map(d=><button key={d} onClick={()=>setDur(d)} style={{width:34,height:30,borderRadius:7,border:`0.5px solid ${dur===d?C.navy:C.gray200}`,background:dur===d?C.navy:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,fontFamily:"inherit"}}>
+            {DURATIONS.map(function(d){return <button key={d} onClick={function(){setDur(d);}} style={{width:34,height:30,borderRadius:7,border:"0.5px solid "+(dur===d?C.navy:C.gray200),background:dur===d?C.navy:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,fontFamily:"inherit"}}>
               <span style={{fontSize:11,fontWeight:500,color:dur===d?"#fff":C.gray600,lineHeight:1}}>{d}</span>
               <span style={{fontSize:8,color:dur===d?"rgba(255,255,255,0.7)":C.gray400,lineHeight:1}}>m</span>
-            </button>)}
+            </button>;})}
           </div>
           <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            {activeRm&&<Btn sm variant="secondary" onClick={()=>onRenameRoadmap(activeRm.id)}>Renommer</Btn>}
-            <Btn sm onClick={handleGen} disabled={loading||!selectedAxes.length}>{loading?"Génération…":activeRm?.weeks?.length?"↺ Regénérer":"→ Générer"}</Btn>
+            {activeRm&&<Btn sm variant="secondary" onClick={function(){props.onRenameRoadmap(activeRm.id);}}>Renommer</Btn>}
+            <Btn sm onClick={handleGen} disabled={loading||!props.selectedAxes.length}>{loading?"Génération…":(activeRm&&activeRm.weeks&&activeRm.weeks.length)?"↺ Regénérer":"→ Générer"}</Btn>
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",background:C.gray50}}>
-          {!selectedAxes.length&&<div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400E"}}>⚠ Sélectionnez d'abord vos axes.</div>}
-          {!activeRm?.weeks?.length
-            ?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={selectedAxes.length?"Générer":null} onBtn={selectedAxes.length?handleGen:null}/>
-            :quarters.map((q,qi)=>{
-              const isOpen=openQ.includes(qi);
+          {!props.selectedAxes.length&&<div style={{background:"#FEF3C7",border:"0.5px solid "+C.amber,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400E"}}>⚠ Sélectionnez d'abord vos axes.</div>}
+          {!(activeRm&&activeRm.weeks&&activeRm.weeks.length)
+            ?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={props.selectedAxes.length?"Générer":null} onBtn={props.selectedAxes.length?handleGen:null}/>
+            :quarters.map(function(q,qi){
+              var isOpen=openQ.indexOf(qi)!==-1;
               return <div key={qi} style={{marginBottom:8}}>
-                <div onClick={()=>setOpenQ(p=>p.includes(qi)?p.filter(x=>x!==qi):[...p,qi])} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none",background:isOpen?C.navyLight:C.gray100,border:`0.5px solid ${isOpen?C.navy:C.gray200}`,borderRadius:isOpen?"9px 9px 0 0":9}}>
+                <div onClick={function(){setOpenQ(function(p){return p.indexOf(qi)!==-1?p.filter(function(x){return x!==qi;}):[...p,qi];});}} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none",background:isOpen?C.navyLight:C.gray100,border:"0.5px solid "+(isOpen?C.navy:C.gray200),borderRadius:isOpen?"9px 9px 0 0":"9px"}}>
                   <span style={{fontSize:12,fontWeight:500,color:C.navy}}>Trimestre {q.index+1}</span>
                   <span style={{fontSize:11,color:C.gray400}}>{q.months.join(" · ")}</span>
                   <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12}}>
@@ -534,23 +490,23 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
                     <span style={{fontSize:12,color:C.gray400,transform:isOpen?"rotate(90deg)":"none",transition:"transform 0.15s"}}>›</span>
                   </div>
                 </div>
-                {isOpen&&<div style={{border:`0.5px solid ${C.navy}`,borderTop:"none",borderRadius:"0 0 9px 9px",padding:12,background:"#fff"}}>
+                {isOpen&&<div style={{border:"0.5px solid "+C.navy,borderTop:"none",borderRadius:"0 0 9px 9px",padding:12,background:"#fff"}}>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-                    {q.months.map(month=><div key={month}>
-                      <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8,paddingBottom:5,borderBottom:`0.5px solid ${C.gray200}`}}>{month}</div>
-                      {q.weeks.filter(w=>w.month===month).map(w=>{
-                        const isDone=pubWeeks.has(w.week),isCur=q.current?.week===w.week;
-                        return <div key={w.week} style={{border:`0.5px solid ${isCur?C.navy:C.gray200}`,borderRadius:7,padding:9,marginBottom:7,background:isCur?C.navyLight:"#fff",opacity:isDone?0.55:1}}>
+                    {q.months.map(function(month){return <div key={month}>
+                      <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8,paddingBottom:5,borderBottom:"0.5px solid "+C.gray200}}>{month}</div>
+                      {q.weeks.filter(function(w){return w.month===month;}).map(function(w){
+                        var isDone=props.pubWeeks.has(w.week),isCur=q.current&&q.current.week===w.week;
+                        return <div key={w.week} style={{border:"0.5px solid "+(isCur?C.navy:C.gray200),borderRadius:7,padding:9,marginBottom:7,background:isCur?C.navyLight:"#fff",opacity:isDone?0.55:1}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                             <span style={{fontSize:10,color:C.gray400}}>Sem. {w.week}</span>
-                            {isDone?<span style={{fontSize:10,color:C.green,fontWeight:500}}>✓ Publié</span>:<button onClick={()=>onGoCreer(w)} style={{fontSize:10,color:C.navy,border:`0.5px solid ${C.navyMid}`,borderRadius:4,padding:"2px 6px",background:C.navyLight,cursor:"pointer",fontFamily:"inherit"}}>Créer →</button>}
+                            {isDone?<span style={{fontSize:10,color:C.green,fontWeight:500}}>✓ Publié</span>:<button onClick={function(){props.onGoCreer(w);}} style={{fontSize:10,color:C.navy,border:"0.5px solid "+C.navyMid,borderRadius:4,padding:"2px 6px",background:C.navyLight,cursor:"pointer",fontFamily:"inherit"}}>Créer →</button>}
                           </div>
                           <p style={{fontSize:12,fontWeight:500,lineHeight:1.3,marginBottom:3}}>{w.theme}</p>
                           <p style={{fontSize:11,color:C.gray400,lineHeight:1.4,marginBottom:5}}>{w.detail}</p>
                           <span style={{padding:"2px 6px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:10,fontWeight:500}}>{w.axis}</span>
                         </div>;
                       })}
-                    </div>)}
+                    </div>;})}
                   </div>
                 </div>}
               </div>;
@@ -562,22 +518,23 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
   );
 }
 
-// ─── CRÉER TAB ─────────────────────────────────────────────────────
-function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
-  const [axis,    setAxis]    = useState(prefill?.axis||selectedAxes[0]||null);
-  const [tone,    setTone]    = useState(prefill?.tone||"");
-  const [style,   setStyle]   = useState(prefill?.style||"");
-  const [post,    setPost]    = useState("");
-  const [loading, setLoading] = useState(false);
-  useEffect(()=>{if(prefill?.axis)setAxis(prefill.axis);if(prefill?.tone)setTone(prefill.tone);if(prefill?.style)setStyle(prefill.style);},[prefill]);
+function GenererTab(props) {
+  var prefill=props.prefill;
+  var _a=useState(prefill&&prefill.axis?prefill.axis:(props.selectedAxes[0]||null)); var axis=_a[0]; var setAxis=_a[1];
+  var _t=useState(prefill&&prefill.tone?prefill.tone:""); var tone=_t[0]; var setTone=_t[1];
+  var _s=useState(prefill&&prefill.style?prefill.style:""); var style=_s[0]; var setStyle=_s[1];
+  var _p=useState(""); var post=_p[0]; var setPost=_p[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
+  useEffect(function(){ if(prefill&&prefill.axis)setAxis(prefill.axis); if(prefill&&prefill.tone)setTone(prefill.tone); if(prefill&&prefill.style)setStyle(prefill.style); },[prefill]);
   async function handleGen() {
-    if (!axis||!tone||!style||!profile) return;
+    if (!axis||!tone||!style||!props.profile) return;
     setLoading(true);
     try {
-      const sug = prefill?.roadmapSug?`\nThème : "${prefill.roadmapSug.theme}"`:"";
-      const txt = await callClaude(`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}\nAxe : ${axis.title} — ${axis.description}\nTon : ${tone}\nStyle : ${style}${sug}\nGénère le post LinkedIn.`,LINKEDIN_RULES);
+      var sug = prefill&&prefill.roadmapSug ? "\nThème suggéré : " + prefill.roadmapSug.theme : "";
+      var prompt = "Profil : " + props.profile.name + " — " + props.profile.vision + "\nContexte : " + props.profile.context + "\nAxe : " + axis.title + " — " + axis.description + "\nTon : " + tone + "\nStyle : " + style + sug + "\nGénère le post LinkedIn.";
+      var txt = await callClaude(prompt, LINKEDIN_RULES, 1200);
       setPost(txt);
-    } catch(e) { showToast("⚠️ "+e.message); }
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
   return (
@@ -585,14 +542,14 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
       <Card>
         <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:14}}>Paramètres du post</p>
         <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Axe</p>
-        {selectedAxes.length>0
-          ?<div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:12}}>{selectedAxes.map(a=><div key={a.id} onClick={()=>setAxis(a)} style={{padding:"7px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:`2px solid ${axis?.id===a.id?C.navy:C.gray200}`,background:axis?.id===a.id?C.navyLight:"#fff",fontWeight:axis?.id===a.id?500:400,color:axis?.id===a.id?C.navy:C.gray900}}>{a.emoji} {a.title}</div>)}</div>
+        {props.selectedAxes.length>0
+          ?<div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:12}}>{props.selectedAxes.map(function(a){return <div key={a.id} onClick={function(){setAxis(a);}} style={{padding:"7px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:"2px solid "+(axis&&axis.id===a.id?C.navy:C.gray200),background:axis&&axis.id===a.id?C.navyLight:"#fff",fontWeight:axis&&axis.id===a.id?500:400,color:axis&&axis.id===a.id?C.navy:C.gray900}}>{a.emoji} {a.title}</div>;})}</div>
           :<p style={{fontSize:12,color:C.gray400,marginBottom:12}}>Aucun axe sélectionné.</p>
         }
         <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Ton</p>
-        <div style={{marginBottom:12}}>{TONES.map(t=><Tag key={t} label={t} active={tone===t} onClick={()=>setTone(t)}/>)}</div>
+        <div style={{marginBottom:12}}>{TONES.map(function(t){return <Tag key={t} label={t} active={tone===t} onClick={function(){setTone(t);}}/>;})}</div>
         <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Style</p>
-        <div style={{marginBottom:16}}>{STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}</div>
+        <div style={{marginBottom:16}}>{STYLES.map(function(s){return <Tag key={s} label={s} active={style===s} onClick={function(){setStyle(s);}}/>;})}</div>
         <Btn onClick={handleGen} disabled={!axis||!tone||!style||loading} full>{loading?"Génération…":"✦ Générer le post"}</Btn>
       </Card>
       {post
@@ -600,8 +557,8 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500}}>Post généré</span><CharBadge n={post.length}/></div>
             <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>navigator.clipboard.writeText(post)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-              <button onClick={()=>{onSavePost({content:post,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+              <button onClick={function(){navigator.clipboard.writeText(post);}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={function(){props.onSavePost({content:post,axis:axis?axis.title:"",tone:tone,style:style});props.showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
             </div>
           </div>
           <div style={{background:C.gray50,borderRadius:8,padding:14,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:12}}>{post}</div>
@@ -613,35 +570,47 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   );
 }
 
-function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
-  const [axis,      setAxis]      = useState(prefill?.axis||selectedAxes[0]||null);
-  const [tone,      setTone]      = useState(prefill?.tone||"");
-  const [style,     setStyle]     = useState(prefill?.style||"");
-  const [basePost,  setBasePost]  = useState("");
-  const [questions, setQuestions] = useState([]);
-  const [answers,   setAnswers]   = useState({});
-  const [enriched,  setEnriched]  = useState("");
-  const [loadBase,  setLoadBase]  = useState(false);
-  const [loadQ,     setLoadQ]     = useState(false);
-  const [loadE,     setLoadE]     = useState(false);
+function InterviewTab(props) {
+  var prefill=props.prefill;
+  var _a=useState(prefill&&prefill.axis?prefill.axis:(props.selectedAxes[0]||null)); var axis=_a[0]; var setAxis=_a[1];
+  var _t=useState(prefill&&prefill.tone?prefill.tone:""); var tone=_t[0]; var setTone=_t[1];
+  var _s=useState(prefill&&prefill.style?prefill.style:""); var style=_s[0]; var setStyle=_s[1];
+  var _bp=useState(""); var basePost=_bp[0]; var setBasePost=_bp[1];
+  var _q=useState([]); var questions=_q[0]; var setQuestions=_q[1];
+  var _ans=useState({}); var answers=_ans[0]; var setAnswers=_ans[1];
+  var _en=useState(""); var enriched=_en[0]; var setEnriched=_en[1];
+  var _lb=useState(false); var loadBase=_lb[0]; var setLoadBase=_lb[1];
+  var _lq=useState(false); var loadQ=_lq[0]; var setLoadQ=_lq[1];
+  var _le=useState(false); var loadE=_le[0]; var setLoadE=_le[1];
   async function handleGenBase() {
-    if (!axis||!tone||!style||!profile) return;
+    if (!axis||!tone||!style||!props.profile) return;
     setLoadBase(true);
-    try { const txt=await callClaude(`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}\nAxe : ${axis.title}\nTon : ${tone}\nStyle : ${style}\nGénère le post LinkedIn.`,LINKEDIN_RULES); setBasePost(txt); setQuestions([]); setAnswers({}); setEnriched(""); }
-    catch(e) { showToast("⚠️ "+e.message); }
+    try {
+      var prompt = "Profil : " + props.profile.name + " — " + props.profile.vision + "\nContexte : " + props.profile.context + "\nAxe : " + axis.title + "\nTon : " + tone + "\nStyle : " + style + "\nGénère le post LinkedIn.";
+      var txt = await callClaude(prompt, LINKEDIN_RULES, 1200);
+      setBasePost(txt); setQuestions([]); setAnswers({}); setEnriched("");
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoadBase(false);
   }
   async function handleGenQ() {
     if (!basePost) return;
     setLoadQ(true);
-    try { const txt=await callClaude(`Post :\n${basePost}\n\nPose 3 questions courtes pour extraire le vécu de l'auteur.`,`Réponds UNIQUEMENT en JSON valide. Format : {"questions":["Q1","Q2","Q3"]}`,400); const p=parseJSON(txt); if(p?.questions) setQuestions(p.questions); }
-    catch(e) { showToast("⚠️ "+e.message); }
+    try {
+      var prompt = "Post :\n" + basePost + "\n\nPose 3 questions courtes pour extraire le vécu de l'auteur.";
+      var sys = 'Réponds UNIQUEMENT en JSON valide. Format : {"questions":["Q1","Q2","Q3"]}';
+      var txt = await callClaude(prompt, sys, 400);
+      var p = parseJSON(txt); if(p&&p.questions) setQuestions(p.questions);
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoadQ(false);
   }
   async function handleEnrich() {
     setLoadE(true);
-    try { const qa=questions.map((q,i)=>`Q: ${q}\nR: ${answers[i]||"—"}`).join("\n\n"); const txt=await callClaude(`Post original :\n${basePost}\n\nVécu :\n${qa}\n\nRéécris en intégrant naturellement ces éléments.`,LINKEDIN_RULES); setEnriched(txt); }
-    catch(e) { showToast("⚠️ "+e.message); }
+    try {
+      var qa = questions.map(function(q,i){return "Q: "+q+"\nR: "+(answers[i]||"—");}).join("\n\n");
+      var prompt = "Post original :\n" + basePost + "\n\nVécu :\n" + qa + "\n\nRéécris en intégrant naturellement ces éléments.";
+      var txt = await callClaude(prompt, LINKEDIN_RULES, 1200);
+      setEnriched(txt);
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoadE(false);
   }
   return (
@@ -649,40 +618,40 @@ function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
       <Card>
         <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:10}}>Post de base</p>
         <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Axe</p>
-        <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>{selectedAxes.map(a=><div key={a.id} onClick={()=>setAxis(a)} style={{padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:`2px solid ${axis?.id===a.id?C.navy:C.gray200}`,background:axis?.id===a.id?C.navyLight:"#fff",color:axis?.id===a.id?C.navy:C.gray900}}>{a.emoji} {a.title}</div>)}</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>{props.selectedAxes.map(function(a){return <div key={a.id} onClick={function(){setAxis(a);}} style={{padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:"2px solid "+(axis&&axis.id===a.id?C.navy:C.gray200),background:axis&&axis.id===a.id?C.navyLight:"#fff",color:axis&&axis.id===a.id?C.navy:C.gray900}}>{a.emoji} {a.title}</div>;})}</div>
         <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-          <div><p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Ton</p><div>{TONES.map(t=><Tag key={t} label={t} active={tone===t} onClick={()=>setTone(t)}/>)}</div></div>
-          <div><p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Style</p><div>{STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}</div></div>
+          <div><p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Ton</p><div>{TONES.map(function(t){return <Tag key={t} label={t} active={tone===t} onClick={function(){setTone(t);}}/>;})}</div></div>
+          <div><p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Style</p><div>{STYLES.map(function(s){return <Tag key={s} label={s} active={style===s} onClick={function(){setStyle(s);}}/>;})}</div></div>
         </div>
         <Btn sm onClick={handleGenBase} disabled={!axis||!tone||!style||loadBase} style={{marginBottom:12}}>{loadBase?"Génération…":basePost?"↺ Regénérer le post de base":"Générer le post de base"}</Btn>
-        {basePost&&<>
-          <div style={{background:C.gray50,borderLeft:`3px solid ${C.gray200}`,borderRadius:"0 8px 8px 0",padding:"9px 11px",fontSize:12,lineHeight:1.6,color:C.gray600,marginBottom:12,maxHeight:100,overflowY:"auto"}}>{basePost}</div>
+        {basePost&&<React.Fragment>
+          <div style={{background:C.gray50,borderLeft:"3px solid "+C.gray200,borderRadius:"0 8px 8px 0",padding:"9px 11px",fontSize:12,lineHeight:1.6,color:C.gray600,marginBottom:12,maxHeight:100,overflowY:"auto"}}>{basePost}</div>
           {questions.length===0
             ?<Btn sm onClick={handleGenQ} disabled={loadQ}>{loadQ?"Génération…":"Générer les questions"}</Btn>
             :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {questions.map((q,i)=><div key={i}>
-                <div style={{background:C.gray50,borderLeft:`3px solid ${C.navy}`,borderRadius:"0 8px 8px 0",padding:"8px 10px",marginBottom:6}}><p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p></div>
-                <textarea value={answers[i]||""} onChange={e=>setAnswers(p=>({...p,[i]:e.target.value}))} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
-              </div>)}
+              {questions.map(function(q,i){return <div key={i}>
+                <div style={{background:C.gray50,borderLeft:"3px solid "+C.navy,borderRadius:"0 8px 8px 0",padding:"8px 10px",marginBottom:6}}><p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p></div>
+                <textarea value={answers[i]||""} onChange={function(e){var v=e.target.value; setAnswers(function(p){var n=Object.assign({},p); n[i]=v; return n;});}} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+              </div>;})}
               <Btn full onClick={handleEnrich} disabled={loadE}>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
             </div>
           }
-        </>}
+        </React.Fragment>}
       </Card>
       {enriched
-        ?<Card style={{borderTop:`3px solid ${C.green}`}}>
+        ?<Card style={{borderTop:"3px solid "+C.green}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post enrichi</span><CharBadge n={enriched.length}/></div>
             <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>navigator.clipboard.writeText(enriched)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-              <button onClick={()=>{onSavePost({content:enriched,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+              <button onClick={function(){navigator.clipboard.writeText(enriched);}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={function(){props.onSavePost({content:enriched,axis:axis?axis.title:"",tone:tone,style:style});props.showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
             </div>
           </div>
           <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:12}}>{enriched}</div>
           <Btn sm variant="secondary" onClick={handleEnrich} disabled={loadE}>↺ Regénérer</Btn>
         </Card>
-        :<Card style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:300,background:C.gray50,border:`0.5px dashed ${C.gray200}`}}>
-          <div style={{width:40,height:40,borderRadius:"50%",border:`1.5px solid ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12}}><div style={{width:14,height:14,borderRadius:"50%",background:C.navy,opacity:0.25}}/></div>
+        :<Card style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:300,background:C.gray50,border:"0.5px dashed "+C.gray200}}>
+          <div style={{width:40,height:40,borderRadius:"50%",border:"1.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12}}><div style={{width:14,height:14,borderRadius:"50%",background:C.navy,opacity:0.25}}/></div>
           <p style={{fontSize:12,color:C.gray400,textAlign:"center",lineHeight:1.5}}>Le post enrichi<br/>apparaîtra ici</p>
         </Card>
       }
@@ -690,60 +659,62 @@ function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   );
 }
 
-function AnalyserTab({showToast}) {
-  const [post,     setPost]     = useState("");
-  const [analysis, setAnalysis] = useState(null);
-  const [loading,  setLoading]  = useState(false);
+function AnalyserTab(props) {
+  var _p=useState(""); var post=_p[0]; var setPost=_p[1];
+  var _an=useState(null); var analysis=_an[0]; var setAnalysis=_an[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
   async function handleAnalyze() {
     if (!post) return;
     setLoading(true);
     try {
-      const txt=await callClaude(`Analyse ce post LinkedIn :\n\n${post}`,`Expert LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}`,700);
-      const p=parseJSON(txt);
-      if(p) setAnalysis(p); else showToast("⚠️ Format inattendu");
-    } catch(e) { showToast("⚠️ "+e.message); }
+      var prompt = "Analyse ce post LinkedIn :\n\n" + post;
+      var sys = 'Expert LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}';
+      var txt = await callClaude(prompt, sys, 700);
+      var p = parseJSON(txt); if(p) setAnalysis(p); else props.showToast("⚠️ Format inattendu");
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><span style={{fontSize:13,fontWeight:500}}>Post à analyser</span><CharBadge n={post.length}/></div>
-        <textarea value={post} onChange={e=>setPost(e.target.value)} placeholder="Collez votre post ici…" rows={10} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:12}}/>
+        <textarea value={post} onChange={function(e){setPost(e.target.value);}} placeholder="Collez votre post ici…" rows={10} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:12}}/>
         <Btn onClick={handleAnalyze} disabled={!post||loading} full>{loading?"Analyse…":"Analyser ce post"}</Btn>
       </Card>
       <Card>
         {!analysis
           ?<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}><p style={{fontSize:13,color:C.gray400}}>Les résultats apparaîtront ici.</p></div>
-          :<>
+          :<React.Fragment>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:14,fontWeight:500}}>Résultats</span><span style={{fontSize:28,fontWeight:500,color:analysis.score>=7?C.green:analysis.score>=5?C.amber:C.red}}>{analysis.score}<span style={{fontSize:13,color:C.gray400}}>/10</span></span></div>
-            {[{k:"hook",l:"Hook"},{k:"structure",l:"Structure"},{k:"ton",l:"Ton"},{k:"longueur",l:"Longueur"}].map(({k,l})=>analysis[k]&&<ScoreBar key={k} label={l} note={analysis[k].note}/>)}
+            {[{k:"hook",l:"Hook"},{k:"structure",l:"Structure"},{k:"ton",l:"Ton"},{k:"longueur",l:"Longueur"}].map(function(x){return analysis[x.k]?<ScoreBar key={x.k} label={x.l} note={analysis[x.k].note}/>:null;})}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
-              {analysis.points_forts?.length>0&&<div style={{background:"#F0FDF4",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#15803D",marginBottom:5}}>Points forts</p>{analysis.points_forts.map((p,i)=><p key={i} style={{fontSize:11,color:"#166534",marginBottom:3}}>· {p}</p>)}</div>}
-              {analysis.points_faibles?.length>0&&<div style={{background:"#FEF2F2",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#B91C1C",marginBottom:5}}>À améliorer</p>{analysis.points_faibles.map((p,i)=><p key={i} style={{fontSize:11,color:"#991B1B",marginBottom:3}}>· {p}</p>)}</div>}
+              {analysis.points_forts&&analysis.points_forts.length>0&&<div style={{background:"#F0FDF4",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#15803D",marginBottom:5}}>Points forts</p>{analysis.points_forts.map(function(p,i){return <p key={i} style={{fontSize:11,color:"#166534",marginBottom:3}}>· {p}</p>;})}</div>}
+              {analysis.points_faibles&&analysis.points_faibles.length>0&&<div style={{background:"#FEF2F2",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#B91C1C",marginBottom:5}}>À améliorer</p>{analysis.points_faibles.map(function(p,i){return <p key={i} style={{fontSize:11,color:"#991B1B",marginBottom:3}}>· {p}</p>;})}</div>}
             </div>
-            {analysis.recommandations?.length>0&&<div style={{background:C.navyLight,borderRadius:8,padding:10,marginTop:10}}><p style={{fontSize:12,fontWeight:500,color:C.navy,marginBottom:7}}>Recommandations</p>{analysis.recommandations.map((r,i)=><p key={i} style={{fontSize:12,color:C.gray600,marginBottom:5}}>{i+1}. {r}</p>)}</div>}
-          </>
+            {analysis.recommandations&&analysis.recommandations.length>0&&<div style={{background:C.navyLight,borderRadius:8,padding:10,marginTop:10}}><p style={{fontSize:12,fontWeight:500,color:C.navy,marginBottom:7}}>Recommandations</p>{analysis.recommandations.map(function(r,i){return <p key={i} style={{fontSize:12,color:C.gray600,marginBottom:5}}>{i+1}. {r}</p>;})}</div>}
+          </React.Fragment>
         }
       </Card>
     </div>
   );
 }
 
-function OptimiserTab({onSavePost,showToast}) {
-  const [post,      setPost]      = useState("");
-  const [selAxes,   setSelAxes]   = useState([]);
-  const [freeInst,  setFreeInst]  = useState("");
-  const [optimPost, setOptimPost] = useState("");
-  const [loading,   setLoading]   = useState(false);
+function OptimiserTab(props) {
+  var _p=useState(""); var post=_p[0]; var setPost=_p[1];
+  var _sa=useState([]); var selAxes=_sa[0]; var setSelAxes=_sa[1];
+  var _fi=useState(""); var freeInst=_fi[0]; var setFreeInst=_fi[1];
+  var _op=useState(""); var optimPost=_op[0]; var setOptimPost=_op[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
   async function handleOptimize() {
     if (!post) return;
     setLoading(true);
     try {
-      const desc=selAxes.map(id=>{const a=OPTIM_AXES.find(x=>x.id===id);return a?`- ${a.label} : ${a.desc}`:""}).filter(Boolean).join("\n");
-      const instr=[desc,freeInst.trim()].filter(Boolean).join("\n\nInstruction libre :\n")||"Améliore globalement.";
-      const txt=await callClaude(`Optimise :\n${instr}\n\nPost :\n${post}`,LINKEDIN_RULES);
+      var desc = selAxes.map(function(id){var a=OPTIM_AXES.find(function(x){return x.id===id;});return a?"- "+a.label+" : "+a.desc:"";}).filter(Boolean).join("\n");
+      var instr = [desc,freeInst.trim()].filter(Boolean).join("\n\nInstruction libre :\n") || "Améliore globalement.";
+      var prompt = "Optimise :\n" + instr + "\n\nPost :\n" + post;
+      var txt = await callClaude(prompt, LINKEDIN_RULES, 1200);
       setOptimPost(txt);
-    } catch(e) { showToast("⚠️ "+e.message); }
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
   return (
@@ -751,82 +722,80 @@ function OptimiserTab({onSavePost,showToast}) {
       <Card>
         <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:12}}>Axes d'optimisation</p>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:14}}>
-          {OPTIM_AXES.map(a=>{const sel=selAxes.includes(a.id);return <div key={a.id} onClick={()=>setSelAxes(p=>sel?p.filter(x=>x!==a.id):[...p,a.id])} style={{padding:"9px 10px",borderRadius:8,cursor:"pointer",border:`0.5px solid ${sel?C.navy:C.gray200}`,background:sel?C.navyLight:"#fff"}}><p style={{fontSize:12,fontWeight:500,color:sel?C.navy:C.gray900,marginBottom:1}}>{a.label}</p><p style={{fontSize:10,color:C.gray400}}>{a.desc}</p></div>;})}
+          {OPTIM_AXES.map(function(a){var sel=selAxes.indexOf(a.id)!==-1;return <div key={a.id} onClick={function(){setSelAxes(function(p){return sel?p.filter(function(x){return x!==a.id;}):[...p,a.id];});}} style={{padding:"9px 10px",borderRadius:8,cursor:"pointer",border:"0.5px solid "+(sel?C.navy:C.gray200),background:sel?C.navyLight:"#fff"}}><p style={{fontSize:12,fontWeight:500,color:sel?C.navy:C.gray900,marginBottom:1}}>{a.label}</p><p style={{fontSize:10,color:C.gray400}}>{a.desc}</p></div>;})}
         </div>
         <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Post à optimiser</p>
-        <textarea value={post} onChange={e=>setPost(e.target.value)} placeholder="Collez votre post ici…" rows={5} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6,marginBottom:10}}/>
+        <textarea value={post} onChange={function(e){setPost(e.target.value);}} placeholder="Collez votre post ici…" rows={5} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6,marginBottom:10}}/>
         <Field label="Instruction libre" value={freeInst} onChange={setFreeInst} placeholder="Ex : Rends plus adapté à une audience DSI…" rows={2}/>
-        <Btn full onClick={handleOptimize} disabled={!post||(selAxes.length===0&&!freeInst.trim())||loading}>{loading?"Optimisation…":`Optimiser${selAxes.length?` (${selAxes.length})`:""}`}</Btn>
+        <Btn full onClick={handleOptimize} disabled={!post||(selAxes.length===0&&!freeInst.trim())||loading}>{loading?"Optimisation…":"Optimiser"+(selAxes.length?" ("+selAxes.length+")":"")}</Btn>
       </Card>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {post&&<Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:500,color:C.gray600}}>Post de base</span><CharBadge n={post.length}/></div><div style={{background:C.gray50,borderRadius:8,padding:10,fontSize:12,lineHeight:1.6,color:C.gray600,maxHeight:120,overflowY:"auto",opacity:0.8}}>{post}</div></Card>}
-        {optimPost&&<Card style={{borderTop:`3px solid ${C.green}`}}>
+        {optimPost&&<Card style={{borderTop:"3px solid "+C.green}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post optimisé</span><CharBadge n={optimPost.length}/></div>
             <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>navigator.clipboard.writeText(optimPost)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-              <button onClick={()=>{onSavePost({content:optimPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+              <button onClick={function(){navigator.clipboard.writeText(optimPost);}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={function(){props.onSavePost({content:optimPost,axis:"",tone:"",style:""});props.showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
             </div>
           </div>
           <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:10}}>{optimPost}</div>
-          <div style={{display:"flex",gap:6}}><Btn sm variant="secondary" onClick={handleOptimize} disabled={loading}>↺ Regénérer</Btn><Btn sm variant="secondary" onClick={()=>{setPost(optimPost);setOptimPost("");}}>→ Nouvelle base</Btn></div>
+          <div style={{display:"flex",gap:6}}><Btn sm variant="secondary" onClick={handleOptimize} disabled={loading}>↺ Regénérer</Btn><Btn sm variant="secondary" onClick={function(){setPost(optimPost);setOptimPost("");}}>→ Nouvelle base</Btn></div>
         </Card>}
       </div>
     </div>
   );
 }
 
-function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
-  const [activeTab, setActiveTab] = useState("generer");
-  const TABS = [{id:"generer",label:"Générer"},{id:"interview",label:"Interview"},{id:"analyser",label:"Analyser"},{id:"optimiser",label:"Optimiser"}];
+function CreerTab(props) {
+  var _at=useState("generer"); var activeTab=_at[0]; var setActiveTab=_at[1];
+  var TABS = [{id:"generer",label:"Générer"},{id:"interview",label:"Interview"},{id:"analyser",label:"Analyser"},{id:"optimiser",label:"Optimiser"}];
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}}>
-      <div style={{height:40,background:"#fff",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"stretch",padding:"0 1.25rem",flexShrink:0}}>
-        {TABS.map(tab=>{const isOn=activeTab===tab.id;return <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:`2px solid ${isOn?C.navy:"transparent"}`,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;})}
+      <div style={{height:40,background:"#fff",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"stretch",padding:"0 1.25rem",flexShrink:0}}>
+        {TABS.map(function(tab){var isOn=activeTab===tab.id;return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:"2px solid "+(isOn?C.navy:"transparent"),background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;})}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
         <div style={{maxWidth:900,margin:"0 auto"}}>
-          {activeTab==="generer"   &&<GenererTab   profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast}/>}
-          {activeTab==="interview" &&<InterviewTab profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast}/>}
-          {activeTab==="analyser"  &&<AnalyserTab  showToast={showToast}/>}
-          {activeTab==="optimiser" &&<OptimiserTab onSavePost={onSavePost} showToast={showToast}/>}
+          {activeTab==="generer"   && <GenererTab   profile={props.profile} selectedAxes={props.selectedAxes} prefill={props.prefill} onSavePost={props.onSavePost} showToast={props.showToast}/>}
+          {activeTab==="interview" && <InterviewTab profile={props.profile} selectedAxes={props.selectedAxes} prefill={props.prefill} onSavePost={props.onSavePost} showToast={props.showToast}/>}
+          {activeTab==="analyser"  && <AnalyserTab  showToast={props.showToast}/>}
+          {activeTab==="optimiser" && <OptimiserTab onSavePost={props.onSavePost} showToast={props.showToast}/>}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── MES POSTS TAB ─────────────────────────────────────────────────
-function MesPostsTab({posts,onDelete}) {
-  const [filter, setFilter] = useState("all");
-  const axes     = [...new Set(posts.map(p=>p.axis).filter(Boolean))];
-  const filtered = filter==="all"?posts:posts.filter(p=>p.axis===filter);
+function MesPostsTab(props) {
+  var _f=useState("all"); var filter=_f[0]; var setFilter=_f[1];
+  var axes = [];
+  props.posts.forEach(function(p){ if(p.axis&&axes.indexOf(p.axis)===-1) axes.push(p.axis); });
+  var filtered = filter==="all" ? props.posts : props.posts.filter(function(p){return p.axis===filter;});
   return (
     <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.5rem",background:C.gray50}}>
       <div style={{maxWidth:900,margin:"0 auto"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <p style={{fontSize:16,fontWeight:500,color:C.gray900}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({posts.length})</span></p>
-        </div>
+        <p style={{fontSize:16,fontWeight:500,color:C.gray900,marginBottom:14}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({props.posts.length})</span></p>
         <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
-          {["all",...axes].map(a=><button key={a} onClick={()=>setFilter(a)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>)}
+          {["all"].concat(axes).map(function(a){return <button key={a} onClick={function(){setFilter(a);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?"0.5px solid "+C.navyMid:"0.5px solid "+C.gray200,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>;})}
         </div>
         {filtered.length===0
           ?<Empty icon="📝" text="Aucun post sauvegardé."/>
           :<div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
-            {filtered.map(p=><div key={p.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,padding:14}}>
+            {filtered.map(function(p){return <div key={p.id} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                   {p.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{p.axis}</span>}
-                  {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}{p.style?` · ${p.style}`:""}</span>}
+                  {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}{p.style?" · "+p.style:""}</span>}
                 </div>
                 <span style={{fontSize:11,color:C.gray400,flexShrink:0}}>{p.date}</span>
               </div>
               <p style={{fontSize:13,color:C.gray900,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 50%, transparent)",marginBottom:10}}>{p.content}</p>
-              <div style={{display:"flex",gap:10,borderTop:`0.5px solid ${C.gray200}`,paddingTop:8}}>
-                <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-                <button onClick={()=>onDelete(p.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
+              <div style={{display:"flex",gap:10,borderTop:"0.5px solid "+C.gray200,paddingTop:8}}>
+                <button onClick={function(){navigator.clipboard.writeText(p.content);}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+                <button onClick={function(){props.onDelete(p.id);}} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
               </div>
-            </div>)}
+            </div>;})}
           </div>
         }
       </div>
@@ -834,64 +803,64 @@ function MesPostsTab({posts,onDelete}) {
   );
 }
 
-// ─── INSIGHTS TAB ──────────────────────────────────────────────────
-function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
-  const [selPost,  setSelPost]  = useState("");
-  const [metrics,  setMetrics]  = useState({impressions:"",likes:"",comments:""});
-  const [improved, setImproved] = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const engRate = metrics.impressions?(((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1):null;
-  const avgImp  = insights.length?Math.round(insights.reduce((s,i)=>s+(+i.impressions||0),0)/insights.length):null;
-  const avgEng  = insights.length?(insights.reduce((s,i)=>{const e=i.impressions?((+i.likes||0)+(+i.comments||0))/+i.impressions*100:0;return s+e;},0)/insights.length).toFixed(1):null;
+function InsightsTab(props) {
+  var _sp=useState(""); var selPost=_sp[0]; var setSelPost=_sp[1];
+  var _m=useState({impressions:"",likes:"",comments:""}); var metrics=_m[0]; var setMetrics=_m[1];
+  var _im=useState(""); var improved=_im[0]; var setImproved=_im[1];
+  var _l=useState(false); var loading=_l[0]; var setLoading=_l[1];
+  var engRate = metrics.impressions ? (((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1) : null;
+  var avgImp = props.insights.length ? Math.round(props.insights.reduce(function(s,i){return s+(+i.impressions||0);},0)/props.insights.length) : null;
+  var avgEng = props.insights.length ? (props.insights.reduce(function(s,i){var e=i.impressions?((+i.likes||0)+(+i.comments||0))/+i.impressions*100:0;return s+e;},0)/props.insights.length).toFixed(1) : null;
   async function handleAnalyze() {
     if (!selPost.trim()) return;
     setLoading(true);
     try {
-      const hist=insights.slice(0,3).map(i=>`impressions:${i.impressions} likes:${i.likes} comments:${i.comments}`).join(" | ");
-      const txt=await callClaude(`Post :\n${selPost}\nPerf : impressions=${metrics.impressions}, likes=${metrics.likes}, commentaires=${metrics.comments}${hist?"\nHistorique : "+hist:""}\n\nAnalyse et génère une version améliorée.`,LINKEDIN_RULES);
+      var hist = props.insights.slice(0,3).map(function(i){return "impressions:"+i.impressions+" likes:"+i.likes+" comments:"+i.comments;}).join(" | ");
+      var prompt = "Post :\n" + selPost + "\nPerf : impressions=" + metrics.impressions + ", likes=" + metrics.likes + ", commentaires=" + metrics.comments + (hist?"\nHistorique : "+hist:"") + "\n\nAnalyse et génère une version améliorée.";
+      var txt = await callClaude(prompt, LINKEDIN_RULES, 1200);
       setImproved(txt);
-      onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments});
-      showToast("✓ Analyse enregistrée");
-    } catch(e) { showToast("⚠️ "+e.message); }
+      props.onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments});
+      props.showToast("✓ Analyse enregistrée");
+    } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"calc(100vh - 56px)"}}>
-      <div style={{padding:"1.5rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
-        <div><p style={{fontSize:15,fontWeight:500,color:C.gray900,marginBottom:4}}>Insights J+7</p><p style={{fontSize:12,color:C.gray400,lineHeight:1.5}}>{insights.length>0?`L'IA tient compte de vos ${insights.length} analyse(s) précédente(s).`:"Renseignez les performances d'un post publié."}</p></div>
-        <div style={{border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden"}}>
-          <div style={{padding:"8px 12px",background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",gap:8}}>
+      <div style={{padding:"1.5rem",background:"#fff",borderRight:"0.5px solid "+C.gray200,overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
+        <div><p style={{fontSize:15,fontWeight:500,color:C.gray900,marginBottom:4}}>Insights J+7</p><p style={{fontSize:12,color:C.gray400,lineHeight:1.5}}>{props.insights.length>0?"L'IA tient compte de vos "+props.insights.length+" analyse(s) précédente(s).":"Renseignez les performances d'un post publié."}</p></div>
+        <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
+          <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
             <span style={{fontSize:11,fontWeight:500,color:C.gray900}}>Choisir le post</span>
           </div>
           {selPost
-            ?<div style={{padding:"10px 12px",background:C.navyLight,borderLeft:`3px solid ${C.navy}`}}>
+            ?<div style={{padding:"10px 12px",background:C.navyLight,borderLeft:"3px solid "+C.navy}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
                 <p style={{fontSize:12,fontWeight:500,color:C.navy,lineHeight:1.5,flex:1}}>{selPost.slice(0,120)}{selPost.length>120?"…":""}</p>
-                <button onClick={()=>{setSelPost("");setImproved("");}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,flexShrink:0,marginLeft:8,fontFamily:"inherit"}}>Changer →</button>
+                <button onClick={function(){setSelPost("");setImproved("");}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,flexShrink:0,marginLeft:8,fontFamily:"inherit"}}>Changer →</button>
               </div>
             </div>
             :<div style={{padding:"10px 12px"}}>
-              {posts.length>0&&<select value="" onChange={e=>setSelPost(e.target.value)} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:12,marginBottom:8,background:C.gray50,outline:"none",color:C.gray900,fontFamily:"inherit"}}>
+              {props.posts.length>0&&<select value="" onChange={function(e){setSelPost(e.target.value);}} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,marginBottom:8,background:C.gray50,outline:"none",color:C.gray900,fontFamily:"inherit"}}>
                 <option value="">Choisir un post sauvegardé…</option>
-                {posts.map(p=><option key={p.id} value={p.content}>{p.axis?`[${p.axis}] `:""}{p.date} — {p.content.slice(0,50)}…</option>)}
+                {props.posts.map(function(p){return <option key={p.id} value={p.content}>{p.axis?"["+p.axis+"] ":""}{p.date} — {p.content.slice(0,50)}…</option>;})}
               </select>}
-              <textarea value={selPost} onChange={e=>setSelPost(e.target.value)} placeholder="Ou collez votre post ici…" rows={3} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/>
+              <textarea value={selPost} onChange={function(e){setSelPost(e.target.value);}} placeholder="Ou collez votre post ici…" rows={3} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/>
             </div>
           }
         </div>
-        <div style={{border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden"}}>
-          <div style={{padding:"8px 12px",background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",gap:8}}>
+        <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
+          <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}>
             <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
             <span style={{fontSize:11,fontWeight:500,color:C.gray900}}>Performances J+7</span>
             <span style={{fontSize:10,color:C.gray400}}>— à saisir après publication</span>
           </div>
           <div style={{padding:"10px 12px"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
-              {[{l:"Impressions",k:"impressions"},{l:"Likes",k:"likes"},{l:"Commentaires",k:"comments"}].map(({l,k})=><div key={k}>
-                <p style={{fontSize:11,color:C.gray600,marginBottom:4}}>{l}</p>
-                <input type="number" min="0" value={metrics[k]} onChange={e=>setMetrics(m=>({...m,[k]:e.target.value}))} placeholder="0" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
-              </div>)}
+              {[{l:"Impressions",k:"impressions"},{l:"Likes",k:"likes"},{l:"Commentaires",k:"comments"}].map(function(x){return <div key={x.k}>
+                <p style={{fontSize:11,color:C.gray600,marginBottom:4}}>{x.l}</p>
+                <input type="number" min="0" value={metrics[x.k]} onChange={function(e){var v=e.target.value; setMetrics(function(m){var n=Object.assign({},m); n[x.k]=v; return n;});}} placeholder="0" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+              </div>;})}
             </div>
             {engRate&&<div style={{padding:"6px 10px",background:C.gray50,borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray600}}>Taux d'engagement calculé</span><span style={{fontSize:13,fontWeight:500,color:C.green}}>{engRate}%</span></div>}
           </div>
@@ -900,26 +869,24 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
         {improved&&<div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <span style={{fontSize:13,fontWeight:500,color:C.green}}>Post amélioré</span>
-            <button onClick={()=>navigator.clipboard.writeText(improved)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+            <button onClick={function(){navigator.clipboard.writeText(improved);}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
           </div>
           <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{improved}</div>
         </div>}
       </div>
       <div style={{padding:"1.5rem",background:C.gray50,overflowY:"auto"}}>
         <p style={{fontSize:14,fontWeight:500,color:C.gray900,marginBottom:12}}>Historique des analyses</p>
-        {insights.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>
-          {[{l:"Moy. impressions",v:avgImp?.toLocaleString("fr-FR")||"—"},{l:"Moy. engagement",v:avgEng?`${avgEng}%`:"—",g:true},{l:"Posts analysés",v:insights.length}].map(({l,v,g})=><div key={l} style={{flex:1,background:"#fff",borderRadius:8,padding:10,textAlign:"center"}}><p style={{fontSize:10,color:C.gray400,marginBottom:4}}>{l}</p><p style={{fontSize:20,fontWeight:500,color:g?C.green:C.gray900}}>{v}</p></div>)}
-        </div>}
-        {insights.length===0
+        {props.insights.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>
+          {[{l:"Moy. impressions",v:avgImp?avgImp.toLocaleString("fr-FR"):"—"},{l:"Moy. engagement",v:avgEng?avgEng+"%":"—",g:true},{l:"Posts analysés",v:props.insights.length}].map(function(x){return <div key={x.l} style={{flex:1,background:"#fff",borderRadius:8,padding:10,textAlign:"center"}}><p style={{fontSize:10,color:C.gray400,marginBottom:4}}>{x.l}</p><p style={{fontSize:20,fontWeight:500,color:x.g?C.green:C.gray900}}>{x.v}</p></div>;})}</div>}
+        {props.insights.length===0
           ?<Empty icon="📈" text="Aucune analyse enregistrée."/>
-          :insights.map(ins=>{
-            const eng=ins.impressions?(((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1):null;
-            return <div key={ins.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden",marginBottom:8}}>
-              <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><button onClick={()=>onDeleteInsight(ins.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Suppr.</button></div>
-              <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
+          :props.insights.map(function(ins){
+            var eng = ins.impressions ? (((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1) : null;
+            return <div key={ins.id} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden",marginBottom:8}}>
+              <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><button onClick={function(){props.onDeleteInsight(ins.id);}} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Suppr.</button></div>
+              <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
               <div style={{padding:"8px 12px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-                {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?`${eng}%`:"—",g:true}].map(({l,v,g})=><div key={l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{l}</p><p style={{fontSize:13,fontWeight:500,color:g?C.green:C.gray900}}>{v||"—"}</p></div>)}
-              </div>
+                {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?eng+"%":"—",g:true}].map(function(x){return <div key={x.l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{x.l}</p><p style={{fontSize:13,fontWeight:500,color:x.g?C.green:C.gray900}}>{x.v||"—"}</p></div>;})}</div>
             </div>;
           })
         }
@@ -928,54 +895,51 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
   );
 }
 
-// ─── APP SHELL ─────────────────────────────────────────────────────
 function AppShell() {
-  const [toastMsg, setToastMsg] = useState("");
-  const toastTimer = useRef(null);
-  function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current=setTimeout(()=>setToastMsg(""),2800); }
+  var _tm=useState(""); var toastMsg=_tm[0]; var setToastMsg=_tm[1];
+  var toastTimer = useRef(null);
+  function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current=setTimeout(function(){setToastMsg("");},2800); }
 
-  const [activeTab,    setActiveTab]    = useState("profil");
-  const [profile,      setProfile]      = useState(()=>store.get(SK.PROFILE));
-  const [axesSessions, setAxesSessions] = useState(()=>store.get(SK.AXES,[]));
-  const [favAxes,      setFavAxes]      = useState(()=>store.get(SK.FAV,[]));
-  const [selectedAxes, setSelectedAxes] = useState(()=>store.get(SK.SEL,[]));
-  const [roadmaps,     setRoadmaps]     = useState(()=>store.get(SK.ROADMAPS,[]));
-  const [activeRmId,   setActiveRmId]   = useState(()=>store.get(SK.ACTIVE_RM));
-  const [pubWeeks,     setPubWeeks]     = useState(()=>new Set(store.get(SK.PUB,[])));
-  const [posts,        setPosts]        = useState(()=>store.get(SK.POSTS,[]));
-  const [insights,     setInsights]     = useState(()=>store.get(SK.INSIGHTS,[]));
-  const [creerPrefill, setCreerPrefill] = useState(null);
+  var _at=useState("profil"); var activeTab=_at[0]; var setActiveTab=_at[1];
+  var _pr=useState(function(){return store.get(SK.PROFILE);}); var profile=_pr[0]; var setProfile=_pr[1];
+  var _as=useState(function(){return store.get(SK.AXES,[]);}); var axesSessions=_as[0]; var setAxesSessions=_as[1];
+  var _fa=useState(function(){return store.get(SK.FAV,[]);}); var favAxes=_fa[0]; var setFavAxes=_fa[1];
+  var _sa=useState(function(){return store.get(SK.SEL,[]);}); var selectedAxes=_sa[0]; var setSelectedAxes=_sa[1];
+  var _rm=useState(function(){return store.get(SK.ROADMAPS,[]);}); var roadmaps=_rm[0]; var setRoadmaps=_rm[1];
+  var _ar=useState(function(){return store.get(SK.ACTIVE_RM);}); var activeRmId=_ar[0]; var setActiveRmId=_ar[1];
+  var _pw=useState(function(){return new Set(store.get(SK.PUB,[]));;}); var pubWeeks=_pw[0]; var setPubWeeks=_pw[1];
+  var _po=useState(function(){return store.get(SK.POSTS,[]);}); var posts=_po[0]; var setPosts=_po[1];
+  var _in=useState(function(){return store.get(SK.INSIGHTS,[]);}); var insights=_in[0]; var setInsights=_in[1];
+  var _cp=useState(null); var creerPrefill=_cp[0]; var setCreerPrefill=_cp[1];
 
   function persist(key, setter) {
-    return (val) => {
-      setter(prev => {
-        const v = val instanceof Function ? val(prev) : val;
-        store.set(key, v instanceof Set ? [...v] : v);
+    return function(val) {
+      setter(function(prev) {
+        var v = typeof val === "function" ? val(prev) : val;
+        store.set(key, v instanceof Set ? Array.from(v) : v);
         return v;
       });
     };
   }
-
-  const saveProfile      = persist(SK.PROFILE,  setProfile);
-  const saveAxesSessions = persist(SK.AXES,      setAxesSessions);
-  const saveFavAxes      = persist(SK.FAV,       setFavAxes);
-  const saveSelectedAxes = persist(SK.SEL,       setSelectedAxes);
-  const saveRoadmaps     = persist(SK.ROADMAPS,  setRoadmaps);
-  const saveActiveRmId   = persist(SK.ACTIVE_RM, setActiveRmId);
-  const savePosts        = persist(SK.POSTS,     setPosts);
-  const saveInsights     = persist(SK.INSIGHTS,  setInsights);
+  var saveProfile      = persist(SK.PROFILE,  setProfile);
+  var saveAxesSessions = persist(SK.AXES,      setAxesSessions);
+  var saveFavAxes      = persist(SK.FAV,       setFavAxes);
+  var saveSelectedAxes = persist(SK.SEL,       setSelectedAxes);
+  var saveRoadmaps     = persist(SK.ROADMAPS,  setRoadmaps);
+  var saveActiveRmId   = persist(SK.ACTIVE_RM, setActiveRmId);
+  var savePosts        = persist(SK.POSTS,     setPosts);
+  var saveInsights     = persist(SK.INSIGHTS,  setInsights);
 
   function createRoadmap() {
-    const rm = {id:uid(), name:`Roadmap ${roadmaps.length+1}`, createdAt:toDay(), weeks:[]};
-    saveRoadmaps(p=>[...p,rm]);
+    var rm = {id:uid(), name:"Roadmap "+(roadmaps.length+1), createdAt:toDay(), weeks:[]};
+    saveRoadmaps(function(p){return [...p,rm];});
     saveActiveRmId(rm.id);
     return rm;
   }
-
   function handleDeleteAxis(id) {
-    saveAxesSessions(p=>p.map(s=>({...s,axes:s.axes.filter(a=>a.id!==id)})).filter(s=>s.axes.length>0));
-    saveSelectedAxes(p=>p.filter(a=>a.id!==id));
-    saveFavAxes(p=>p.filter(x=>x!==id));
+    saveAxesSessions(function(p){return p.map(function(s){return Object.assign({},s,{axes:s.axes.filter(function(a){return a.id!==id;})});}).filter(function(s){return s.axes.length>0;});});
+    saveSelectedAxes(function(p){return p.filter(function(a){return a.id!==id;});});
+    saveFavAxes(function(p){return p.filter(function(x){return x!==id;});});
   }
 
   return (
@@ -983,18 +947,17 @@ function AppShell() {
       <Toast message={toastMsg}/>
       <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
       <main style={{flex:1,overflow:"hidden"}}>
-        {activeTab==="profil"   && <ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
-        {activeTab==="roadmap"  && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
-        {activeTab==="creer"    && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
-        {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
-        {activeTab==="insights" && <InsightsTab insights={insights} posts={posts} onAddInsight={i=>saveInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>saveInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
+        {activeTab==="profil"   && <ProfilTab profile={profile} onSave={function(p){saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={function(s){saveAxesSessions(function(p){return [s,...p];});showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
+        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={function(a){saveSelectedAxes(function(p){return p.find(function(x){return x.id===a.id;})?p.filter(function(x){return x.id!==a.id;}):[...p,a];});}} onToggleFav={function(id){saveFavAxes(function(p){return p.indexOf(id)!==-1?p.filter(function(x){return x!==id;}):[...p,id];});}} onDeleteAxis={handleDeleteAxis} onAxesGenerated={function(s){saveAxesSessions(function(p){return [s,...p];});showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={function(){createRoadmap();setActiveTab("roadmap");}} onGoCreer={function(){setActiveTab("creer");}}/>}
+        {activeTab==="roadmap"  && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={function(id){var n=window.prompt("Nouveau nom :");if(n&&n.trim())saveRoadmaps(function(p){return p.map(function(r){return r.id===id?Object.assign({},r,{name:n.trim()}):r;});});}} onDeleteRoadmap={function(id){saveRoadmaps(function(p){var nx=p.filter(function(r){return r.id!==id;});if(activeRmId===id)saveActiveRmId(nx.length?nx[0].id:null);return nx;});}} onRoadmapGenerated={function(rm){saveRoadmaps(function(p){return [...p,rm];});saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={function(w){setCreerPrefill({axis:selectedAxes.find(function(a){return a.title===w.axis;})||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
+        {activeTab==="creer"    && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={function(p){savePosts(function(prev){return [{...p,id:uid(),date:toDay()},...prev];});}} showToast={showToast}/>}
+        {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={function(id){savePosts(function(p){return p.filter(function(x){return x.id!==id;});});}}/>}
+        {activeTab==="insights" && <InsightsTab insights={insights} posts={posts} onAddInsight={function(i){saveInsights(function(p){return [{...i,id:uid(),date:toDay()},...p];});}} onDeleteInsight={function(id){saveInsights(function(p){return p.filter(function(x){return x.id!==id;});});}} showToast={showToast}/>}
       </main>
     </div>
   );
 }
 
-// ─── POINT D'ENTRÉE ────────────────────────────────────────────────
 ReactDOM.createRoot(document.getElementById("root")).render(
   <AuthProvider>
     <ProtectedRoute>
