@@ -4,10 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Content Strategy AI</title>
- <script src="https://cdn.jsdelivr.net/npm/gotrue-js@0.9.29/dist/gotrue.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body, #root { height: 100%; }
@@ -21,8 +17,19 @@
 </head>
 <body>
 <div id="root"></div>
+
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+<script>
+  // Initialisation Netlify Identity AVANT React
+  netlifyIdentity.init({ logo: false });
+</script>
+
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
 // ─── CONSTANTES ────────────────────────────────────────────────────
 const ALLOWED_DOMAINS = ["@margoconseil.com", "@codebusters.fr", "@margo-group.com", "@margo.com"];
@@ -113,9 +120,9 @@ function Btn({onClick,disabled=false,children,variant="primary",sm=false,full=fa
 function Card({children,style:sx}) {
   return <div style={{background:"#fff",borderRadius:10,border:`0.5px solid ${C.gray200}`,padding:"1rem",marginBottom:10,...sx}}>{children}</div>;
 }
-function Field({label,value,onChange,placeholder,rows}) {
+function Field({label,value,onChange,placeholder,rows,type="text"}) {
   const s = {width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,outline:"none",color:C.gray900,fontFamily:"inherit",background:C.gray50,resize:rows?"vertical":undefined,lineHeight:rows?1.6:undefined};
-  return <div style={{marginBottom:12}}>{label&&<div style={{fontSize:12,fontWeight:500,color:C.gray600,marginBottom:4}}>{label}</div>}{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={s}/>:<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>}</div>;
+  return <div style={{marginBottom:12}}>{label&&<div style={{fontSize:12,fontWeight:500,color:C.gray600,marginBottom:4}}>{label}</div>}{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={s}/>:<input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>}</div>;
 }
 function Tag({label,active,onClick}) {
   return <span onClick={onClick} style={{display:"inline-block",padding:"5px 12px",borderRadius:20,fontSize:12,margin:"3px 3px 3px 0",cursor:"pointer",border:`1.5px solid ${active?C.navy:C.gray200}`,background:active?C.navyLight:"#fff",color:active?C.navy:C.gray600,fontWeight:active?500:400}}>{label}</span>;
@@ -140,54 +147,73 @@ function ScoreBar({label,note}) {
 
 // ─── AUTH CONTEXT ──────────────────────────────────────────────────
 const AuthContext = React.createContext(null);
+
 function AuthProvider({children}) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
 
-  function isAllowed(u) { return ALLOWED_DOMAINS.some(d => u?.email?.endsWith(d)) ?? false; }
-  function login()  { setError(null); netlifyIdentity.open("login"); }
-  function logout() { netlifyIdentity.logout(); store.clear(); setUser(null); }
+  function isAllowed(u) {
+    return ALLOWED_DOMAINS.some(d => u?.email?.endsWith(d));
+  }
+
+  function logout() {
+    netlifyIdentity.logout();
+    store.clear();
+    setUser(null);
+  }
 
   useEffect(() => {
-   window.auth = new GoTrue({
-  APIUrl: "https://silver-halva-115469.netlify.app/.netlify/identity",
-  setCookie: true,
-});
-console.log("GoTrue initialisé");
-console.log("Netlify Identity initialisé");
-netlifyIdentity.on("error", err => console.error("Erreur Identity :", err));
-netlifyIdentity.on("open",  () => console.log("Widget ouvert"));
-netlifyIdentity.on("close", () => console.log("Widget fermé"));
+    // Vérifie si un utilisateur est déjà connecté
     const cur = netlifyIdentity.currentUser();
-console.log("Utilisateur au chargement :", cur?.email, cur);
-if (cur) { isAllowed(cur) ? setUser(cur) : (netlifyIdentity.logout(), setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(" / ")}.`)); }
+    if (cur) {
+      if (isAllowed(cur)) setUser(cur);
+      else { netlifyIdentity.logout(); setError("Domaine non autorisé."); }
+    }
     setLoading(false);
-    netlifyIdentity.on("login", u => { 
-  netlifyIdentity.close(); 
-  console.log("Email reçu :", u?.email);
-  isAllowed(u) ? (setUser(u), setError(null)) : (netlifyIdentity.logout(), setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(" / ")}.`));
-});
+
+    // Événement login — déclenché par le widget Netlify
+    netlifyIdentity.on("login", u => {
+      netlifyIdentity.close();
+      if (isAllowed(u)) { setUser(u); setError(null); }
+      else { netlifyIdentity.logout(); setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(", ")}.`); }
+    });
+
     netlifyIdentity.on("logout", () => setUser(null));
-    return () => { netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
+
+    return () => {
+      netlifyIdentity.off("login");
+      netlifyIdentity.off("logout");
+    };
   }, []);
 
-  return <AuthContext.Provider value={{user,loading,error,login,logout}}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{user, loading, error, logout}}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
+
 function useAuth() {
-  const ctx = React.useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth doit être dans AuthProvider");
-  return ctx;
+  return React.useContext(AuthContext);
 }
 
 // ─── LOGIN PAGE ────────────────────────────────────────────────────
 function LoginPage() {
-  const {login, error} = useAuth();
+  const { error } = useAuth();
+
+  function handleLogin() {
+    netlifyIdentity.open("login");
+  }
+
   return (
     <div style={{height:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+      {/* Panneau gauche */}
       <div style={{background:C.navy,padding:"2.5rem",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:32,height:32,borderRadius:9,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:10,height:10,borderRadius:"50%",background:"#fff"}}/></div>
+          <div style={{width:32,height:32,borderRadius:9,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{width:10,height:10,borderRadius:"50%",background:"#fff"}}/>
+          </div>
           <span style={{fontSize:14,fontWeight:500,color:"#fff"}}>Content Strategy AI</span>
         </div>
         <div>
@@ -195,22 +221,37 @@ function LoginPage() {
           <p style={{fontSize:13,color:"rgba(255,255,255,0.55)",lineHeight:1.6,marginBottom:28}}>Axes de contenu, roadmap éditoriale, génération et optimisation de posts.</p>
           {["Génération de posts calibrés à votre marque","Roadmap éditoriale jusqu'à 18 mois","Analyse et optimisation post publication"].map(p=>(
             <div key={p} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-              <div style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><div style={{width:6,height:6,borderRadius:"50%",background:"rgba(255,255,255,0.6)"}}/></div>
+              <div style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <div style={{width:6,height:6,borderRadius:"50%",background:"rgba(255,255,255,0.6)"}}/>
+              </div>
               <span style={{fontSize:13,color:"rgba(255,255,255,0.65)"}}>{p}</span>
             </div>
           ))}
         </div>
-        <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Réservé aux collaborateurs {ALLOWED_DOMAINS.join(" / ")}</p>
+        <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Accès sur invitation uniquement</p>
       </div>
+
+      {/* Panneau droit */}
       <div style={{background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2.5rem"}}>
         <p style={{fontSize:22,fontWeight:500,color:C.gray900,marginBottom:6}}>Connexion</p>
         <p style={{fontSize:13,color:C.gray400,marginBottom:32,textAlign:"center"}}>Accédez à votre espace de création</p>
-        <button onClick={login} style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:12,border:`0.5px solid ${C.gray200}`,borderRadius:8,background:"#fff",cursor:"pointer",fontSize:14,fontWeight:500,color:C.gray900,fontFamily:"inherit"}}>
-          <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-          Continuer avec Google
+
+        <button
+          onClick={handleLogin}
+          style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:12,border:`0.5px solid ${C.gray200}`,borderRadius:8,background:C.navy,cursor:"pointer",fontSize:14,fontWeight:500,color:"#fff",fontFamily:"inherit"}}
+        >
+          Se connecter
         </button>
-        {error&&<div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>{error}</div>}
-        <p style={{marginTop:24,fontSize:12,color:C.gray200,textAlign:"center"}}>Seuls les comptes {ALLOWED_DOMAINS.join(" / ")} sont autorisés</p>
+
+        {error && (
+          <div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>
+            {error}
+          </div>
+        )}
+
+        <p style={{marginTop:24,fontSize:12,color:C.gray400,textAlign:"center"}}>
+          Accès sur invitation — contactez votre administrateur
+        </p>
       </div>
     </div>
   );
@@ -232,8 +273,13 @@ function NavBar({activeTab, onTabChange, postCount, insightCount}) {
   return (
     <nav style={{height:56,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,background:"#fff",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:9,flexShrink:0,marginRight:10}}>
-        <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
-        <div><div style={{fontSize:13,fontWeight:500,color:C.gray900,lineHeight:1}}>Content Strategy AI</div><div style={{fontSize:10,color:C.gray400,marginTop:1}}>Powered by Claude</div></div>
+        <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/>
+        </div>
+        <div>
+          <div style={{fontSize:13,fontWeight:500,color:C.gray900,lineHeight:1}}>Content Strategy AI</div>
+          <div style={{fontSize:10,color:C.gray400,marginTop:1}}>Powered by Claude</div>
+        </div>
       </div>
       <div style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
         {NAV_ITEMS.map(item=>{
@@ -263,8 +309,7 @@ function ProfilTab({profile, onSave, showToast, onAxesGenerated}) {
 
   async function handleGenAxes() {
     if (!isValid) return;
-    const p = {name,vision,context};
-    onSave(p);
+    onSave({name,vision,context});
     setLoading(true);
     try {
       const txt = await callClaude(`Nom : ${name}\nVision : ${vision}\nContexte : ${context}\nGénère 6 axes de contenu LinkedIn stratégiques en français.`,`Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.`,900);
@@ -858,39 +903,46 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
 
 // ─── APP SHELL ─────────────────────────────────────────────────────
 function AppShell() {
-  const {toastMsg, showToast} = (() => {
-    const [msg, setMsg] = useState("");
-    const t = useRef(null);
-    return {toastMsg:msg, showToast:(m)=>{ clearTimeout(t.current); setMsg(m); t.current=setTimeout(()=>setMsg(""),2800); }};
-  })();
+  const [toastMsg, setToastMsg] = useState("");
+  const toastTimer = useRef(null);
+  function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current = setTimeout(()=>setToastMsg(""), 2800); }
 
-  const [activeTab,     setActiveTab]     = useState("profil");
-  const [profile,       setProfile]       = useState(()=>store.get(SK.PROFILE));
-  const [axesSessions,  setAxesSessions]  = useState(()=>store.get(SK.AXES,[]));
-  const [favAxes,       setFavAxes]       = useState(()=>store.get(SK.FAV,[]));
-  const [selectedAxes,  setSelectedAxes]  = useState(()=>store.get(SK.SEL,[]));
-  const [roadmaps,      setRoadmaps]      = useState(()=>store.get(SK.ROADMAPS,[]));
-  const [activeRmId,    setActiveRmId]    = useState(()=>store.get(SK.ACTIVE_RM));
-  const [pubWeeks,      setPubWeeks]      = useState(()=>new Set(store.get(SK.PUB,[])));
-  const [posts,         setPosts]         = useState(()=>store.get(SK.POSTS,[]));
-  const [insights,      setInsights]      = useState(()=>store.get(SK.INSIGHTS,[]));
-  const [creerPrefill,  setCreerPrefill]  = useState(null);
+  const [activeTab,    setActiveTab]    = useState("profil");
+  const [profile,      setProfile]      = useState(()=>store.get(SK.PROFILE));
+  const [axesSessions, setAxesSessions] = useState(()=>store.get(SK.AXES,[]));
+  const [favAxes,      setFavAxes]      = useState(()=>store.get(SK.FAV,[]));
+  const [selectedAxes, setSelectedAxes] = useState(()=>store.get(SK.SEL,[]));
+  const [roadmaps,     setRoadmaps]     = useState(()=>store.get(SK.ROADMAPS,[]));
+  const [activeRmId,   setActiveRmId]   = useState(()=>store.get(SK.ACTIVE_RM));
+  const [pubWeeks,     setPubWeeks]     = useState(()=>new Set(store.get(SK.PUB,[])));
+  const [posts,        setPosts]        = useState(()=>store.get(SK.POSTS,[]));
+  const [insights,     setInsights]     = useState(()=>store.get(SK.INSIGHTS,[]));
+  const [creerPrefill, setCreerPrefill] = useState(null);
 
-  function save(key, setter) {
-    return (val) => { const v=val instanceof Function?val(store.get(key)):val; setter(v); store.set(key,v instanceof Set?[...v]:v); };
+  function persist(key, setter) {
+    return (val) => {
+      setter(prev => {
+        const v = val instanceof Function ? val(prev) : val;
+        store.set(key, v instanceof Set ? [...v] : v);
+        return v;
+      });
+    };
   }
-  const saveProfile      = save(SK.PROFILE,  setProfile);
-  const saveAxesSessions = save(SK.AXES,     setAxesSessions);
-  const saveFavAxes      = save(SK.FAV,      setFavAxes);
-  const saveSelectedAxes = save(SK.SEL,      setSelectedAxes);
-  const saveRoadmaps     = save(SK.ROADMAPS, setRoadmaps);
-  const saveActiveRmId   = save(SK.ACTIVE_RM,setActiveRmId);
-  const savePosts        = save(SK.POSTS,    setPosts);
-  const saveInsights     = save(SK.INSIGHTS, setInsights);
+
+  const saveProfile      = persist(SK.PROFILE,  setProfile);
+  const saveAxesSessions = persist(SK.AXES,      setAxesSessions);
+  const saveFavAxes      = persist(SK.FAV,       setFavAxes);
+  const saveSelectedAxes = persist(SK.SEL,       setSelectedAxes);
+  const saveRoadmaps     = persist(SK.ROADMAPS,  setRoadmaps);
+  const saveActiveRmId   = persist(SK.ACTIVE_RM, setActiveRmId);
+  const savePosts        = persist(SK.POSTS,     setPosts);
+  const saveInsights     = persist(SK.INSIGHTS,  setInsights);
 
   function createRoadmap() {
-    const rm={id:uid(),name:`Roadmap ${roadmaps.length+1}`,createdAt:toDay(),weeks:[]};
-    saveRoadmaps(p=>[...p,rm]); saveActiveRmId(rm.id); return rm;
+    const rm = {id:uid(), name:`Roadmap ${roadmaps.length+1}`, createdAt:toDay(), weeks:[]};
+    saveRoadmaps(p=>[...p,rm]);
+    saveActiveRmId(rm.id);
+    return rm;
   }
 
   return (
@@ -898,12 +950,12 @@ function AppShell() {
       <Toast message={toastMsg}/>
       <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
       <main style={{flex:1,overflow:"hidden"}}>
-        {activeTab==="profil"   &&<ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-        {activeTab==="axes"     &&<AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
-        {activeTab==="roadmap"  &&<RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
-        {activeTab==="creer"    &&<CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
-        {activeTab==="mesposts" &&<MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
-        {activeTab==="insights" &&<InsightsTab insights={insights} posts={posts} onAddInsight={i=>saveInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>saveInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
+        {activeTab==="profil"   && <ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
+        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
+        {activeTab==="roadmap"  && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
+        {activeTab==="creer"    && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
+        {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
+        {activeTab==="insights" && <InsightsTab insights={insights} posts={posts} onAddInsight={i=>saveInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>saveInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
       </main>
     </div>
   );
