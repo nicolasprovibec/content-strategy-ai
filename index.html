@@ -459,18 +459,42 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
     if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
     setLoading(true); showToast("⏳ Génération en cours…");
     try {
-      const txt = await callClaude(
-        `Profil : ${profile?.name||""} — ${profile?.vision||""}\nAxes : ${JSON.stringify(selectedAxes.map(a=>a.title))}\nGénère une roadmap LinkedIn de ${dur} mois (${dur*4} semaines) en français. Pour chaque semaine : week, month, theme, detail, axis, tone, style, hook.`,
-        `Réponds UNIQUEMENT en JSON valide. Format : {"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}`,
-        4000
-      );
-      const parsed = parseJSON(txt);
-      if (parsed?.weeks?.length) {
-        onRoadmapGenerated({id:uid(),name:`Roadmap ${dur}m — ${toDay()}`,createdAt:toDay(),weeks:parsed.weeks,dur});
-      } else showToast("⚠️ Format inattendu");
-    } catch(e) { showToast("⚠️ "+e.message); }
-    setLoading(false);
+  const txt = await callClaude(
+    `Tu es un expert en stratégie de contenu LinkedIn.
+Profil : ${profile?.name||""} — ${profile?.vision||""}
+Axes disponibles : ${JSON.stringify(selectedAxes.map(a=>a.title))}
+Durée : ${dur} mois soit ${dur*4} semaines.
+
+Génère une roadmap LinkedIn en JSON. Chaque semaine doit avoir :
+- week : numéro de 1 à ${dur*4}
+- month : "Mois 1" à "Mois ${dur}"
+- theme : titre accrocheur du post
+- detail : angle en 1 phrase
+- axis : un des axes fournis (exact)
+- tone : un parmi Inspirant, Éducatif, Provocateur, Authentique, Expert
+- style : un parmi Storytelling, Liste / Tips, Opinion tranchée, Étude de cas, Question ouverte
+- hook : première ligne d'accroche
+
+Réponds UNIQUEMENT avec le JSON, sans texte avant ou après.`,
+    `{"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."},...]}`,
+    4000
+  );
+
+  // Parsing robuste
+  let parsed = parseJSON(txt);
+  
+  // Si le JSON est dans une propriété "weeks" directement
+  if (parsed && !parsed.weeks && Array.isArray(parsed)) {
+    parsed = { weeks: parsed };
   }
+
+  if (parsed?.weeks?.length) {
+    onRoadmapGenerated({id:uid(),name:`Roadmap ${dur}m — ${toDay()}`,createdAt:toDay(),weeks:parsed.weeks,dur});
+  } else {
+    console.log("Réponse brute :", txt);
+    showToast("⚠️ Format inattendu — voir console");
+  }
+} catch(e) { showToast("⚠️ "+e.message); }
   return (
     <div style={{display:"grid",gridTemplateColumns:sidebarOpen?"220px 1fr":"44px 1fr",height:"calc(100vh - 56px)",transition:"grid-template-columns 0.2s"}}>
       <div style={{background:C.gray50,borderRight:`0.5px solid ${C.gray200}`,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
