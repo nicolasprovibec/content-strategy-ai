@@ -1,6 +1,6 @@
 const ALLOWED_DOMAINS  = ["@margoconseil.com", "@codebusters.fr", "@margo-group.com", "@margo.com"];
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL             = "claude-sonnet-4-20250514";
+const MODEL = "claude-haiku-4-5-20251001";
 const MAX_TOKENS_LIMIT  = 2000;
 
 // ─── Helpers ───────────────────────────────────────────────────────
