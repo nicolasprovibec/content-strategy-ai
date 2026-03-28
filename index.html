@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Content Strategy AI</title>
-  <script src="https://unpkg.com/netlify-identity-widget@1.9.2/build/netlify-identity-widget.js"></script>
+  <script src="https://unpkg.com/gotrue-js@0.9.29/dist/gotrue.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -150,7 +150,11 @@ function AuthProvider({children}) {
   function logout() { netlifyIdentity.logout(); store.clear(); setUser(null); }
 
   useEffect(() => {
-    netlifyIdentity.init({logo:false});
+   window.auth = new GoTrue({
+  APIUrl: "https://silver-halva-115469.netlify.app/.netlify/identity",
+  setCookie: true,
+});
+console.log("GoTrue initialisé");
 console.log("Netlify Identity initialisé");
 netlifyIdentity.on("error", err => console.error("Erreur Identity :", err));
 netlifyIdentity.on("open",  () => console.log("Widget ouvert"));
