@@ -10,6 +10,8 @@ exports.handler = async function(event) {
       body: event.body
     });
     const data = await res.json();
+    console.log("STATUS:", res.status);
+    console.log("RESPONSE:", JSON.stringify(data));
     return {
       statusCode: res.status,
       headers: {
@@ -19,6 +21,7 @@ exports.handler = async function(event) {
       body: JSON.stringify(data)
     };
   } catch(e) {
+    console.log("ERROR:", e.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: { message: e.message } })
