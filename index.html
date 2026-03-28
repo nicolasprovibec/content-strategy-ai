@@ -34,7 +34,7 @@ const ALLOWED_DOMAINS = ["@margoconseil.com", "@codebusters.fr", "@margo-group.c
 const LINKEDIN_RULES = "Tu es un expert copywriting LinkedIn. Règles absolues :\n- 800 à 1500 caractères, jamais de blocs denses\n- Hook fort sur les 2 premières lignes (court, clivant, zéro jargon)\n- 1 idée par ligne, sauts de ligne fréquents\n- Ton direct, conversationnel, position assumée\n- Pas de hashtags dans le corps, max 3 à la toute fin\nRéponds uniquement avec le texte du post, sans commentaire.";
 const TONES = ["Inspirant","Éducatif","Provocateur","Authentique","Expert"];
 const STYLES = ["Storytelling","Liste / Tips","Opinion tranchée","Étude de cas","Question ouverte"];
-const DURATIONS = [3,6,9,12,15,18];
+const DURATIONS = [1,2,3];
 const OPTIM_AXES = [
   {id:"hook",  label:"Hook",         desc:"Rendre les 2 premières lignes irrésistibles"},
   {id:"lisib", label:"Lisibilité",   desc:"Aérer, 1 idée par ligne"},
@@ -431,7 +431,7 @@ function RoadmapTab(props) {
         + "Répartis les axes équitablement. Pour chaque semaine fournis : week (1 à " + nbWeeks + "), month (Mois 1 à Mois " + dur + "), theme, detail, axis, tone, style, hook.\n"
         + "Réponds UNIQUEMENT avec un objet JSON valide.";
       var sys = "Format JSON attendu : {\"weeks\":[{\"week\":1,\"month\":\"Mois 1\",\"theme\":\"...\",\"detail\":\"...\",\"axis\":\"...\",\"tone\":\"...\",\"style\":\"...\",\"hook\":\"...\"}]}";
-      var txt = await callClaude(prompt, sys, 4000);
+      var txt = await callClaude(prompt, sys, 2000);
       console.log("Réponse roadmap :", txt.substring(0,200));
       var parsed = parseJSON(txt);
       if (parsed && !parsed.weeks && Array.isArray(parsed)) parsed = {weeks:parsed};
