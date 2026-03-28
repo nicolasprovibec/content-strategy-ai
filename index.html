@@ -4,55 +4,906 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Content Strategy AI</title>
-  <link rel="stylesheet" href="src/index.css">
-</head>
-<body>
-  <div id="root"></div>
-
-  <!-- Netlify Identity -->
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-
-  <!-- React + Babel via CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body { font-family: Inter, system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; color: #0F172A; background: #F8FAFC; -webkit-font-smoothing: antialiased; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; }
+    input, textarea, select { font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
 
-  <!-- 1. Globals (fonctions, constantes, composants UI) -->
-  <script src="src/globals.js"></script>
+// ─── CONSTANTES ────────────────────────────────────────────────────
+const ALLOWED_DOMAIN  = "@margoconseil.com";
+const LINKEDIN_RULES  = `Tu es un expert copywriting LinkedIn. Règles absolues :
+- 800 à 1500 caractères, jamais de blocs denses
+- Hook fort sur les 2 premières lignes (court, clivant, zéro jargon)
+- 1 idée par ligne, sauts de ligne fréquents
+- Ton direct, conversationnel, position assumée
+- Pas de hashtags dans le corps, max 3 à la toute fin
+Réponds uniquement avec le texte du post, sans commentaire.`;
+const TONES     = ["Inspirant","Éducatif","Provocateur","Authentique","Expert"];
+const STYLES    = ["Storytelling","Liste / Tips","Opinion tranchée","Étude de cas","Question ouverte"];
+const DURATIONS = [3,6,9,12,15,18];
+const OPTIM_AXES = [
+  {id:"hook",  label:"Hook",         desc:"Rendre les 2 premières lignes irrésistibles"},
+  {id:"lisib", label:"Lisibilité",   desc:"Aérer, 1 idée par ligne"},
+  {id:"ton",   label:"Ton direct",   desc:"Plus conversationnel"},
+  {id:"cta",   label:"CTA",          desc:"Punchline finale plus forte"},
+  {id:"short", label:"Raccourcir",   desc:"Réduire à l'essentiel"},
+  {id:"long",  label:"Développer",   desc:"Enrichir avec un insight"},
+  {id:"punch", label:"Percutant",    desc:"Ton plus clivant"},
+  {id:"story", label:"Storytelling", desc:"Transformer en récit"},
+];
+const NAV_ITEMS = [
+  {id:"profil",   label:"Profil"},
+  {id:"axes",     label:"Axes"},
+  {id:"roadmap",  label:"Roadmap"},
+  {id:"creer",    label:"Créer"},
+  {id:"mesposts", label:"Mes posts"},
+  {id:"insights", label:"Insights"},
+];
+const SK = {
+  PROFILE:"csa_profile", AXES:"csa_axes_sessions", FAV:"csa_fav_axes",
+  SEL:"csa_selected_axes", ROADMAPS:"csa_roadmaps", ACTIVE_RM:"csa_active_rm_id",
+  PUB:"csa_pub_weeks", POSTS:"csa_posts", INSIGHTS:"csa_insights",
+};
+const C = {
+  navy:"#1E3A5F", navyLight:"#E8F0FA", navyMid:"#A8C0DC",
+  green:"#10B981", amber:"#F59E0B", red:"#EF4444",
+  gray50:"#F8FAFC", gray100:"#F1F5F9", gray200:"#E2E8F0",
+  gray400:"#94A3B8", gray600:"#475569", gray900:"#0F172A",
+};
 
-  <!-- 2. Features -->
-  <script type="text/babel" src="src/features/profil/ProfilTab.js"></script>
-  <script type="text/babel" src="src/features/axes/AxesTab.js"></script>
-  <script type="text/babel" src="src/features/roadmap/RoadmapTab.js"></script>
-  <script type="text/babel" src="src/features/creer/CreerTab.js"></script>
-  <script type="text/babel" src="src/features/mesposts/MesPostsTab.js"></script>
-  <script type="text/babel" src="src/features/insights/InsightsTab.js"></script>
+// ─── HELPERS ───────────────────────────────────────────────────────
+const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+const toDay = () => new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
 
-  <!-- 3. Layout -->
-  <script type="text/babel" src="src/components/layout/NavBar.js"></script>
+function parseJSON(txt) {
+  if (!txt) return null;
+  try { return JSON.parse(txt); } catch {}
+  try { return JSON.parse(txt.replace(/```json|```/g,"").trim()); } catch {}
+  const m = txt.match(/\{[\s\S]*\}/);
+  if (m) try { return JSON.parse(m[0]); } catch {}
+  return null;
+}
 
-  <!-- 4. Auth -->
-  <script type="text/babel" src="src/pages/LoginPage.js"></script>
-  <script type="text/babel" src="src/auth/AuthContext.js"></script>
-  <script type="text/babel" src="src/auth/ProtectedRoute.js"></script>
+async function callClaude(userMsg, system="", maxTokens=1200) {
+  const user  = netlifyIdentity.currentUser();
+  const token = user?.token?.access_token || null;
+  if (!token) throw new Error("Utilisateur non authentifié.");
+  const res = await fetch("/.netlify/functions/claude", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+    body: JSON.stringify({system, max_tokens:maxTokens, messages:[{role:"user",content:userMsg}]}),
+  });
+  if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e?.error?.message||`Erreur ${res.status}`); }
+  const d = await res.json();
+  return d?.content?.[0]?.text || "";
+}
 
-  <!-- 5. App shell -->
-  <script type="text/babel" src="src/App.js"></script>
+// ─── STORAGE ───────────────────────────────────────────────────────
+const store = {
+  get: (key, fb=null) => { try { const v=localStorage.getItem(key); return v?JSON.parse(v):fb; } catch { return fb; } },
+  set: (key, val)     => { try { localStorage.setItem(key,JSON.stringify(val)); } catch {} },
+  clear: ()           => Object.values(SK).forEach(k=>localStorage.removeItem(k)),
+};
 
-  <!-- 6. Point d'entrée -->
-  <script type="text/babel">
-    const { AuthProvider }   = window;
-    const { ProtectedRoute } = window;
-    const { AppShell }       = window;
+// ─── UI PRIMITIVES ─────────────────────────────────────────────────
+function Btn({onClick,disabled=false,children,variant="primary",sm=false,full=false,style:sx}) {
+  const V = {
+    primary:   {background:disabled?"#C7D2FE":C.navy, color:"#fff", border:"none"},
+    secondary: {background:C.gray100, color:C.gray600, border:`0.5px solid ${C.gray200}`},
+    ghost:     {background:"transparent", color:C.navy, border:`0.5px solid ${C.navyMid}`},
+    danger:    {background:"#FEF2F2", color:C.red, border:"0.5px solid #FCA5A5"},
+  };
+  return <button onClick={onClick} disabled={disabled} style={{display:"inline-flex",alignItems:"center",justifyContent:full?"center":"flex-start",gap:6,padding:sm?"6px 12px":"9px 18px",borderRadius:8,fontWeight:500,fontSize:sm?12:13,cursor:disabled?"not-allowed":"pointer",whiteSpace:"nowrap",fontFamily:"inherit",width:full?"100%":"auto",opacity:disabled?0.6:1,...(V[variant]||V.primary),...sx}}>{children}</button>;
+}
+function Card({children,style:sx}) {
+  return <div style={{background:"#fff",borderRadius:10,border:`0.5px solid ${C.gray200}`,padding:"1rem",marginBottom:10,...sx}}>{children}</div>;
+}
+function Field({label,value,onChange,placeholder,rows}) {
+  const s = {width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,outline:"none",color:C.gray900,fontFamily:"inherit",background:C.gray50,resize:rows?"vertical":undefined,lineHeight:rows?1.6:undefined};
+  return <div style={{marginBottom:12}}>{label&&<div style={{fontSize:12,fontWeight:500,color:C.gray600,marginBottom:4}}>{label}</div>}{rows?<textarea value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} rows={rows} style={s}/>:<input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={s}/>}</div>;
+}
+function Tag({label,active,onClick}) {
+  return <span onClick={onClick} style={{display:"inline-block",padding:"5px 12px",borderRadius:20,fontSize:12,margin:"3px 3px 3px 0",cursor:"pointer",border:`1.5px solid ${active?C.navy:C.gray200}`,background:active?C.navyLight:"#fff",color:active?C.navy:C.gray600,fontWeight:active?500:400}}>{label}</span>;
+}
+function CharBadge({n}) {
+  if (!n) return null;
+  const color = n<300?C.red:n<=600?C.amber:n<=1500?C.green:C.red;
+  const label = n<300?"Trop court":n<=600?"Court ✓":n<=1500?"Sweet spot ✓":"Trop long";
+  return <span style={{fontSize:11,fontWeight:500,color,background:`${color}18`,padding:"2px 8px",borderRadius:6}}>{n} — {label}</span>;
+}
+function Toast({message}) {
+  if (!message) return null;
+  return <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:C.gray900,color:"#fff",padding:"10px 16px",borderRadius:10,fontSize:13,fontWeight:500,maxWidth:300,pointerEvents:"none"}}>{message}</div>;
+}
+function Empty({icon,text,btnLabel,onBtn}) {
+  return <div style={{textAlign:"center",padding:"48px 24px"}}><div style={{fontSize:36,marginBottom:12}}>{icon}</div><p style={{color:C.gray400,fontSize:14,marginBottom:16}}>{text}</p>{onBtn&&<Btn onClick={onBtn}>{btnLabel}</Btn>}</div>;
+}
+function ScoreBar({label,note}) {
+  const color=(note||0)>=7?C.green:(note||0)>=5?C.amber:C.red;
+  return <div style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:500}}>{label}</span><span style={{fontSize:12,fontWeight:500,color}}>{note}/10</span></div><div style={{height:4,background:C.gray100,borderRadius:10}}><div style={{height:4,borderRadius:10,width:`${(note||0)*10}%`,background:color}}/></div></div>;
+}
 
-    ReactDOM.createRoot(document.getElementById('root')).render(
-      React.createElement(AuthProvider, null,
-        React.createElement(ProtectedRoute, null,
-          React.createElement(AppShell, null)
-        )
-      )
-    );
-  </script>
+// ─── AUTH CONTEXT ──────────────────────────────────────────────────
+const AuthContext = React.createContext(null);
+function AuthProvider({children}) {
+  const [user,    setUser]    = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
 
+  function isAllowed(u) { return u?.email?.endsWith(ALLOWED_DOMAIN) ?? false; }
+  function login()  { setError(null); netlifyIdentity.open("login"); }
+  function logout() { netlifyIdentity.logout(); store.clear(); setUser(null); }
+
+  useEffect(() => {
+    netlifyIdentity.init({logo:false});
+    const cur = netlifyIdentity.currentUser();
+    if (cur) { isAllowed(cur) ? setUser(cur) : (netlifyIdentity.logout(), setError(`Accès réservé aux adresses ${ALLOWED_DOMAIN}.`)); }
+    setLoading(false);
+    netlifyIdentity.on("login", u => { netlifyIdentity.close(); isAllowed(u) ? (setUser(u), setError(null)) : (netlifyIdentity.logout(), setError(`Accès réservé aux adresses ${ALLOWED_DOMAIN}.`)); });
+    netlifyIdentity.on("logout", () => setUser(null));
+    return () => { netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
+  }, []);
+
+  return <AuthContext.Provider value={{user,loading,error,login,logout}}>{children}</AuthContext.Provider>;
+}
+function useAuth() {
+  const ctx = React.useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth doit être dans AuthProvider");
+  return ctx;
+}
+
+// ─── LOGIN PAGE ────────────────────────────────────────────────────
+function LoginPage() {
+  const {login, error} = useAuth();
+  return (
+    <div style={{height:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+      <div style={{background:C.navy,padding:"2.5rem",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:32,height:32,borderRadius:9,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:10,height:10,borderRadius:"50%",background:"#fff"}}/></div>
+          <span style={{fontSize:14,fontWeight:500,color:"#fff"}}>Content Strategy AI</span>
+        </div>
+        <div>
+          <p style={{fontSize:26,fontWeight:500,color:"#fff",lineHeight:1.35,marginBottom:12}}>Votre stratégie LinkedIn,<br/>pilotée par l'IA.</p>
+          <p style={{fontSize:13,color:"rgba(255,255,255,0.55)",lineHeight:1.6,marginBottom:28}}>Axes de contenu, roadmap éditoriale, génération et optimisation de posts.</p>
+          {["Génération de posts calibrés à votre marque","Roadmap éditoriale jusqu'à 18 mois","Analyse et optimisation post publication"].map(p=>(
+            <div key={p} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <div style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><div style={{width:6,height:6,borderRadius:"50%",background:"rgba(255,255,255,0.6)"}}/></div>
+              <span style={{fontSize:13,color:"rgba(255,255,255,0.65)"}}>{p}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Réservé aux collaborateurs {ALLOWED_DOMAIN}</p>
+      </div>
+      <div style={{background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2.5rem"}}>
+        <p style={{fontSize:22,fontWeight:500,color:C.gray900,marginBottom:6}}>Connexion</p>
+        <p style={{fontSize:13,color:C.gray400,marginBottom:32,textAlign:"center"}}>Accédez à votre espace de création</p>
+        <button onClick={login} style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:12,border:`0.5px solid ${C.gray200}`,borderRadius:8,background:"#fff",cursor:"pointer",fontSize:14,fontWeight:500,color:C.gray900,fontFamily:"inherit"}}>
+          <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+          Continuer avec Google
+        </button>
+        {error&&<div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>{error}</div>}
+        <p style={{marginTop:24,fontSize:12,color:C.gray200,textAlign:"center"}}>Seuls les comptes {ALLOWED_DOMAIN} sont autorisés</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── PROTECTED ROUTE ───────────────────────────────────────────────
+function ProtectedRoute({children}) {
+  const {user, loading} = useAuth();
+  if (loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.gray400}}>Chargement…</div>;
+  if (!user)   return <LoginPage/>;
+  return children;
+}
+
+// ─── NAVBAR ────────────────────────────────────────────────────────
+function NavBar({activeTab, onTabChange, postCount, insightCount}) {
+  const {user, logout} = useAuth();
+  const initials    = user?.email?.[0]?.toUpperCase() ?? "?";
+  const displayName = user?.user_metadata?.full_name || user?.email || "Profil";
+  return (
+    <nav style={{height:56,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,background:"#fff",flexShrink:0}}>
+      <div style={{display:"flex",alignItems:"center",gap:9,flexShrink:0,marginRight:10}}>
+        <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
+        <div><div style={{fontSize:13,fontWeight:500,color:C.gray900,lineHeight:1}}>Content Strategy AI</div><div style={{fontSize:10,color:C.gray400,marginTop:1}}>Powered by Claude</div></div>
+      </div>
+      <div style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
+        {NAV_ITEMS.map(item=>{
+          const isOn = activeTab===item.id;
+          const cnt  = item.id==="mesposts"?postCount:item.id==="insights"?insightCount:0;
+          return <button key={item.id} onClick={()=>onTabChange(item.id)} style={{padding:"5px 12px",borderRadius:20,fontSize:12,background:isOn?C.navyLight:"transparent",color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,whiteSpace:"nowrap",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}>
+            {item.label}{cnt>0&&<span style={{background:C.navy,color:"#fff",borderRadius:10,padding:"1px 5px",fontSize:9}}>{cnt}</span>}
+          </button>;
+        })}
+      </div>
+      <button onClick={logout} title="Se déconnecter" style={{display:"flex",alignItems:"center",gap:7,padding:"5px 10px",borderRadius:10,border:`0.5px solid ${C.gray200}`,background:"#fff",cursor:"pointer",flexShrink:0,fontFamily:"inherit"}}>
+        <div style={{width:24,height:24,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:10,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>{initials}</div>
+        <span style={{fontSize:12,color:C.gray900,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</span>
+      </button>
+    </nav>
+  );
+}
+
+// ─── PROFIL TAB ────────────────────────────────────────────────────
+function ProfilTab({profile, onSave, showToast, onAxesGenerated}) {
+  const [name,    setName]    = useState(profile?.name||"");
+  const [vision,  setVision]  = useState(profile?.vision||"");
+  const [context, setContext] = useState(profile?.context||"");
+  const [loading, setLoading] = useState(false);
+  useEffect(()=>{setName(profile?.name||"");setVision(profile?.vision||"");setContext(profile?.context||"");},[profile]);
+  const isValid = name.trim()&&vision.trim()&&context.trim();
+
+  async function handleGenAxes() {
+    if (!isValid) return;
+    const p = {name,vision,context};
+    onSave(p);
+    setLoading(true);
+    try {
+      const txt = await callClaude(`Nom : ${name}\nVision : ${vision}\nContexte : ${context}\nGénère 6 axes de contenu LinkedIn stratégiques en français.`,`Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.`,900);
+      const parsed = parseJSON(txt);
+      if (parsed?.axes?.length) {
+        onAxesGenerated({id:uid(),label:`Génération — ${toDay()}`,createdAt:toDay(),axes:parsed.axes.map(a=>({...a,id:uid()}))});
+      } else showToast("⚠️ Format inattendu, réessayez");
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+      <div style={{padding:"2rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,display:"flex",flexDirection:"column",overflowY:"auto"}}>
+        <p style={{fontSize:11,color:C.gray400,marginBottom:4}}>Étape 1 sur 1</p>
+        <p style={{fontSize:18,fontWeight:500,color:C.gray900,marginBottom:4}}>Votre profil</p>
+        <p style={{fontSize:12,color:C.gray400,marginBottom:24,lineHeight:1.5}}>Ces informations personnalisent tous les contenus générés.</p>
+        <Field label="Nom ou marque" value={name} onChange={setName} placeholder="Ex : Nicolas Dupont"/>
+        <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={3}/>
+        <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants" rows={3}/>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+          <Btn onClick={()=>{if(isValid)onSave({name,vision,context});}} disabled={!isValid}>Sauvegarder</Btn>
+          <Btn variant="secondary" onClick={handleGenAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
+        </div>
+      </div>
+      <div style={{padding:"2rem",background:C.gray50,display:"flex",flexDirection:"column",gap:12,overflowY:"auto"}}>
+        <p style={{fontSize:11,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:"0.06em"}}>Comment ça marche</p>
+        {[{n:"1",t:"Remplissez votre profil",d:"Nom, vision, contexte. 2 minutes chrono."},{n:"2",t:"Vos axes sont générés",d:"6 thèmes LinkedIn calibrés sur votre marque."},{n:"3",t:"Créez et planifiez",d:"Roadmap, posts, analyse, optimisation."}].map(s=>(
+          <div key={s.n} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,padding:"10px 12px",display:"flex",gap:10,alignItems:"flex-start"}}>
+            <div style={{width:22,height:22,borderRadius:"50%",background:C.navyLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:500,color:C.navy}}>{s.n}</span></div>
+            <div><p style={{fontSize:12,fontWeight:500,color:C.gray900,marginBottom:2}}>{s.t}</p><p style={{fontSize:11,color:C.gray400,lineHeight:1.4}}>{s.d}</p></div>
+          </div>
+        ))}
+        <div style={{marginTop:"auto",background:C.navy,borderRadius:10,padding:"10px 14px"}}>
+          <p style={{fontSize:10,color:"rgba(255,255,255,0.5)",marginBottom:2}}>Données stockées localement</p>
+          <p style={{fontSize:11,color:"#fff",fontWeight:500}}>Aucun envoi sans action de votre part</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AXES TAB ──────────────────────────────────────────────────────
+function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onAxesGenerated,profile,showToast,onGoRoadmap,onGoCreer}) {
+  const [mode,    setMode]    = useState("select");
+  const [marked,  setMarked]  = useState([]);
+  const [filter,  setFilter]  = useState("all");
+  const [loading, setLoading] = useState(false);
+  const allAxes = axesSessions.flatMap(s=>s.axes);
+  const usedIds = new Set(selectedAxes.map(a=>a.id));
+  const favIds  = new Set(favAxes);
+  const kept    = allAxes.filter(a=>!marked.find(x=>x.id===a.id));
+
+  const filteredSessions = axesSessions.map(s=>({...s,axes:s.axes.filter(a=>{
+    if(filter==="fav")  return favIds.has(a.id);
+    if(filter==="used") return usedIds.has(a.id);
+    if(filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
+    return true;
+  })})).filter(s=>s.axes.length>0);
+
+  async function regen(count, existing) {
+    if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
+    setLoading(true);
+    try {
+      const txt = await callClaude(`Profil : ${profile.name} — ${profile.vision}\nAxes existants : ${JSON.stringify(existing.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,`Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`,700);
+      const parsed = parseJSON(txt);
+      if (parsed?.axes?.length) {
+        const withIds = parsed.axes.map(a=>({...a,id:uid()}));
+        onAxesGenerated({id:uid(),label:`Regénération — ${toDay()}`,createdAt:toDay(),axes:count===6?withIds:[...kept,...withIds]});
+        setMarked([]); setMode("select");
+        showToast(`✓ ${parsed.axes.length} axe(s) générés`);
+      } else showToast("⚠️ Format inattendu");
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
+      <div style={{maxWidth:760,margin:"0 auto"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:4}}>
+            {[{k:"all",l:`Tous (${allAxes.length})`},{k:"fav",l:"Favoris"},{k:"used",l:"Sélectionnés"},{k:"new",l:"Nouveaux"}].map(({k,l})=>(
+              <button key={k} onClick={()=>setFilter(k)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===k?C.navyLight:C.gray100,color:filter===k?C.navy:C.gray600,border:filter===k?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===k?500:400,fontFamily:"inherit"}}>{l}</button>
+            ))}
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+            <button onClick={()=>{setMode(m=>m==="replace"?"select":"replace");setMarked([]);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:`0.5px solid ${mode==="replace"?C.amber:C.gray200}`,fontFamily:"inherit"}}>{mode==="replace"?"✕ Annuler":"↺ Remplacer des axes"}</button>
+            <Btn sm variant="secondary" onClick={()=>regen(6,allAxes)} disabled={loading}>{loading?"…":"↺ Regénérer 6 nouveaux"}</Btn>
+          </div>
+        </div>
+        {mode==="replace"&&marked.length>0&&(
+          <div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) à remplacer</span>
+            <Btn sm variant="secondary" onClick={()=>regen(marked.length,kept)} disabled={loading} style={{marginLeft:"auto"}}>{loading?"…":`↺ Remplacer ${marked.length}`}</Btn>
+          </div>
+        )}
+        {filteredSessions.length===0&&<Empty icon="🎯" text="Aucun axe trouvé."/>}
+        {filteredSessions.map((session,si)=>(
+          <div key={si} style={{marginBottom:20}}>
+            <div style={{fontSize:11,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+              {session.label}<span style={{background:C.gray100,borderRadius:10,padding:"1px 6px",fontSize:10}}>{session.axes.length}</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
+              {session.axes.map(a=>{
+                const isSel=usedIds.has(a.id),isFav=favIds.has(a.id),isMk=!!marked.find(x=>x.id===a.id);
+                return (
+                  <div key={a.id} onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
+                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                      <span style={{fontSize:15}}>{a.emoji}</span>
+                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                        {mode!=="replace"&&<span onClick={e=>{e.stopPropagation();onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>}
+                        {isSel&&mode!=="replace"&&<div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>}
+                      </div>
+                    </div>
+                    <p style={{fontSize:12,fontWeight:500,color:isSel?C.navy:C.gray900,marginBottom:2}}>{a.title}</p>
+                    <p style={{fontSize:11,color:C.gray400,lineHeight:1.3,marginBottom:6}}>{a.description}</p>
+                    <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,display:"inline-block",background:isSel?"#F0FDF4":isFav?"#FEF3C7":C.gray100,color:isSel?"#15803D":isFav?"#92400E":C.gray400}}>{isSel?"✓ Sélectionné":isFav?"★ Favori":session.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {selectedAxes.length>0&&mode==="select"&&(
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+            <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
+            <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── ROADMAP TAB ───────────────────────────────────────────────────
+function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadmap,onDeleteRoadmap,onRoadmapGenerated,onGoCreer,pubWeeks,selectedAxes,profile,showToast}) {
+  const [dur,         setDur]         = useState(6);
+  const [openQ,       setOpenQ]       = useState([0]);
+  const [loading,     setLoading]     = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0];
+  const weeks    = activeRm?.weeks||[];
+  const months   = [...new Set(weeks.map(w=>w.month))];
+  const quarters = [];
+  for(let i=0;i<months.length;i+=3){
+    const qM=months.slice(i,i+3),qW=weeks.filter(w=>qM.includes(w.month));
+    quarters.push({index:i/3,months:qM,weeks:qW,done:qW.filter(w=>pubWeeks.has(w.week)).length,current:qW.find(w=>!pubWeeks.has(w.week))});
+  }
+
+  async function handleGen() {
+    if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
+    setLoading(true); showToast("⏳ Génération en cours…");
+    try {
+      const txt = await callClaude(
+        `Profil : ${profile?.name||""} — ${profile?.vision||""}\nAxes : ${JSON.stringify(selectedAxes.map(a=>a.title))}\nGénère une roadmap LinkedIn de ${dur} mois (${dur*4} semaines) en français. Pour chaque semaine : week, month, theme, detail, axis, tone, style, hook.`,
+        `Réponds UNIQUEMENT en JSON valide. Format : {"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}`,2000);
+      const parsed = parseJSON(txt);
+      if (parsed?.weeks?.length) {
+        onRoadmapGenerated({id:uid(),name:`Roadmap ${dur}m — ${toDay()}`,createdAt:toDay(),weeks:parsed.weeks,dur});
+      } else showToast("⚠️ Format inattendu");
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:sidebarOpen?"220px 1fr":"44px 1fr",height:"calc(100vh - 56px)",transition:"grid-template-columns 0.2s"}}>
+      <div style={{background:C.gray50,borderRight:`0.5px solid ${C.gray200}`,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
+        <button onClick={()=>setSidebarOpen(o=>!o)} style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:sidebarOpen?"0 10px 8px":"0 auto 8px",border:"none"}}>
+          <span style={{color:"#fff",fontSize:14,transform:sidebarOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>›</span>
+        </button>
+        {roadmaps.map((rm,i)=>(
+          <div key={rm.id} onClick={()=>onSetActive(rm.id)} style={{borderRadius:6,border:`0.5px solid ${rm.id===activeRmId?C.navy:C.gray200}`,background:rm.id===activeRmId?C.navyLight:"#fff",cursor:"pointer",display:"flex",alignItems:"center",...(sidebarOpen?{padding:"8px 10px",margin:"0 8px",gap:8}:{width:28,height:28,justifyContent:"center",margin:"0 auto"})}}>
+            {sidebarOpen?<><div style={{flex:1,minWidth:0}}><p style={{fontSize:12,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rm.name}</p><p style={{fontSize:10,color:C.gray400}}>{rm.weeks?.length||0} sem.</p></div><button onClick={e=>{e.stopPropagation();onDeleteRoadmap(rm.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer"}}>✕</button></>
+            :<span style={{fontSize:9,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray600}}>R{i+1}</span>}
+          </div>
+        ))}
+        {sidebarOpen?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>
+        :<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:`0.5px dashed ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{height:48,background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
+          {activeRm&&<><span style={{fontSize:12,fontWeight:500,color:C.gray900}}>{activeRm.name}</span><span style={{fontSize:10,padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:20,fontWeight:500}}>Active</span></>}
+          <span style={{fontSize:11,color:C.gray600,marginLeft:8}}>Durée :</span>
+          <div style={{display:"flex",gap:3}}>
+            {DURATIONS.map(d=><button key={d} onClick={()=>setDur(d)} style={{width:34,height:30,borderRadius:7,border:`0.5px solid ${dur===d?C.navy:C.gray200}`,background:dur===d?C.navy:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,fontFamily:"inherit"}}>
+              <span style={{fontSize:11,fontWeight:500,color:dur===d?"#fff":C.gray600,lineHeight:1}}>{d}</span>
+              <span style={{fontSize:8,color:dur===d?"rgba(255,255,255,0.7)":C.gray400,lineHeight:1}}>m</span>
+            </button>)}
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+            {activeRm&&<Btn sm variant="secondary" onClick={()=>onRenameRoadmap(activeRm.id)}>Renommer</Btn>}
+            <Btn sm onClick={handleGen} disabled={loading||!selectedAxes.length}>{loading?"Génération…":activeRm?.weeks?.length?"↺ Regénérer":"→ Générer"}</Btn>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",background:C.gray50}}>
+          {!selectedAxes.length&&<div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400E"}}>⚠ Sélectionnez d'abord vos axes.</div>}
+          {!activeRm?.weeks?.length?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={selectedAxes.length?"Générer":null} onBtn={selectedAxes.length?handleGen:null}/>
+          :quarters.map((q,qi)=>{
+            const isOpen=openQ.includes(qi);
+            return <div key={qi} style={{marginBottom:8}}>
+              <div onClick={()=>setOpenQ(p=>p.includes(qi)?p.filter(x=>x!==qi):[...p,qi])} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none",background:isOpen?C.navyLight:C.gray100,border:`0.5px solid ${isOpen?C.navy:C.gray200}`,borderRadius:isOpen?"9px 9px 0 0":9}}>
+                <span style={{fontSize:12,fontWeight:500,color:C.navy}}>Trimestre {q.index+1}</span>
+                <span style={{fontSize:11,color:C.gray400}}>{q.months.join(" · ")}</span>
+                <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12}}>
+                  {q.done>0&&<span style={{fontSize:11,color:C.green}}>{q.done} publié{q.done>1?"s":""}</span>}
+                  <span style={{fontSize:12,color:C.gray400,transform:isOpen?"rotate(90deg)":"none",transition:"transform 0.15s"}}>›</span>
+                </div>
+              </div>
+              {isOpen&&<div style={{border:`0.5px solid ${C.navy}`,borderTop:"none",borderRadius:"0 0 9px 9px",padding:12,background:"#fff"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  {q.months.map(month=><div key={month}>
+                    <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8,paddingBottom:5,borderBottom:`0.5px solid ${C.gray200}`}}>{month}</div>
+                    {q.weeks.filter(w=>w.month===month).map(w=>{
+                      const isDone=pubWeeks.has(w.week),isCur=q.current?.week===w.week;
+                      return <div key={w.week} style={{border:`0.5px solid ${isCur?C.navy:C.gray200}`,borderRadius:7,padding:9,marginBottom:7,background:isCur?C.navyLight:"#fff",opacity:isDone?0.55:1}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                          <span style={{fontSize:10,color:C.gray400}}>Sem. {w.week}</span>
+                          {isDone?<span style={{fontSize:10,color:C.green,fontWeight:500}}>✓ Publié</span>:<button onClick={()=>onGoCreer(w)} style={{fontSize:10,color:C.navy,border:`0.5px solid ${C.navyMid}`,borderRadius:4,padding:"2px 6px",background:C.navyLight,cursor:"pointer",fontFamily:"inherit"}}>Créer →</button>}
+                        </div>
+                        <p style={{fontSize:12,fontWeight:500,lineHeight:1.3,marginBottom:3}}>{w.theme}</p>
+                        <p style={{fontSize:11,color:C.gray400,lineHeight:1.4,marginBottom:5}}>{w.detail}</p>
+                        <span style={{padding:"2px 6px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:10,fontWeight:500}}>{w.axis}</span>
+                      </div>;
+                    })}
+                  </div>)}
+                </div>
+              </div>}
+            </div>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CRÉER TAB ─────────────────────────────────────────────────────
+function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
+  const [axis,    setAxis]    = useState(prefill?.axis||selectedAxes[0]||null);
+  const [tone,    setTone]    = useState(prefill?.tone||"");
+  const [style,   setStyle]   = useState(prefill?.style||"");
+  const [post,    setPost]    = useState("");
+  const [loading, setLoading] = useState(false);
+  useEffect(()=>{if(prefill?.axis)setAxis(prefill.axis);if(prefill?.tone)setTone(prefill.tone);if(prefill?.style)setStyle(prefill.style);},[prefill]);
+
+  async function handleGen() {
+    if (!axis||!tone||!style||!profile) return;
+    setLoading(true);
+    try {
+      const sug = prefill?.roadmapSug?`\nThème : "${prefill.roadmapSug.theme}"`:"";
+      const txt = await callClaude(`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}\nAxe : ${axis.title} — ${axis.description}\nTon : ${tone}\nStyle : ${style}${sug}\nGénère le post LinkedIn.`,LINKEDIN_RULES);
+      setPost(txt);
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <Card>
+        <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:14}}>Paramètres du post</p>
+        <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Axe</p>
+        {selectedAxes.length>0
+          ?<div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:12}}>{selectedAxes.map(a=><div key={a.id} onClick={()=>setAxis(a)} style={{padding:"7px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:`2px solid ${axis?.id===a.id?C.navy:C.gray200}`,background:axis?.id===a.id?C.navyLight:"#fff",fontWeight:axis?.id===a.id?500:400,color:axis?.id===a.id?C.navy:C.gray900}}>{a.emoji} {a.title}</div>)}</div>
+          :<p style={{fontSize:12,color:C.gray400,marginBottom:12}}>Aucun axe sélectionné.</p>
+        }
+        <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Ton</p>
+        <div style={{marginBottom:12}}>{TONES.map(t=><Tag key={t} label={t} active={tone===t} onClick={()=>setTone(t)}/>)}</div>
+        <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Style</p>
+        <div style={{marginBottom:16}}>{STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}</div>
+        <Btn onClick={handleGen} disabled={!axis||!tone||!style||loading} full>{loading?"Génération…":"✦ Générer le post"}</Btn>
+      </Card>
+      {post?<Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500}}>Post généré</span><CharBadge n={post.length}/></div>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>navigator.clipboard.writeText(post)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+            <button onClick={()=>{onSavePost({content:post,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+          </div>
+        </div>
+        <div style={{background:C.gray50,borderRadius:8,padding:14,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:12}}>{post}</div>
+        <Btn sm variant="secondary" onClick={handleGen} disabled={loading}>↺ Regénérer</Btn>
+      </Card>
+      :<Card style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200,background:C.gray50}}><p style={{fontSize:13,color:C.gray400,textAlign:"center"}}>Le post apparaîtra ici après génération.</p></Card>}
+    </div>
+  );
+}
+
+function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
+  const [axis,      setAxis]      = useState(prefill?.axis||selectedAxes[0]||null);
+  const [tone,      setTone]      = useState(prefill?.tone||"");
+  const [style,     setStyle]     = useState(prefill?.style||"");
+  const [basePost,  setBasePost]  = useState("");
+  const [questions, setQuestions] = useState([]);
+  const [answers,   setAnswers]   = useState({});
+  const [enriched,  setEnriched]  = useState("");
+  const [loadBase,  setLoadBase]  = useState(false);
+  const [loadQ,     setLoadQ]     = useState(false);
+  const [loadE,     setLoadE]     = useState(false);
+
+  async function handleGenBase() {
+    if (!axis||!tone||!style||!profile) return;
+    setLoadBase(true);
+    try { const txt=await callClaude(`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}\nAxe : ${axis.title}\nTon : ${tone}\nStyle : ${style}\nGénère le post LinkedIn.`,LINKEDIN_RULES); setBasePost(txt); setQuestions([]); setAnswers({}); setEnriched(""); }
+    catch(e) { showToast("⚠️ "+e.message); }
+    setLoadBase(false);
+  }
+  async function handleGenQ() {
+    if (!basePost) return;
+    setLoadQ(true);
+    try { const txt=await callClaude(`Post :\n${basePost}\n\nPose 3 questions courtes pour extraire le vécu de l'auteur.`,`Réponds UNIQUEMENT en JSON valide. Format : {"questions":["Q1","Q2","Q3"]}`,400); const p=parseJSON(txt); if(p?.questions) setQuestions(p.questions); }
+    catch(e) { showToast("⚠️ "+e.message); }
+    setLoadQ(false);
+  }
+  async function handleEnrich() {
+    setLoadE(true);
+    try { const qa=questions.map((q,i)=>`Q: ${q}\nR: ${answers[i]||"—"}`).join("\n\n"); const txt=await callClaude(`Post original :\n${basePost}\n\nVécu :\n${qa}\n\nRéécris en intégrant naturellement ces éléments.`,LINKEDIN_RULES); setEnriched(txt); }
+    catch(e) { showToast("⚠️ "+e.message); }
+    setLoadE(false);
+  }
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <Card>
+        <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:10}}>Post de base</p>
+        <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Axe</p>
+        <div style={{display:"flex",flexDirection:"column",gap:5,marginBottom:10}}>{selectedAxes.map(a=><div key={a.id} onClick={()=>setAxis(a)} style={{padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:`2px solid ${axis?.id===a.id?C.navy:C.gray200}`,background:axis?.id===a.id?C.navyLight:"#fff",color:axis?.id===a.id?C.navy:C.gray900}}>{a.emoji} {a.title}</div>)}</div>
+        <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+          <div><p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Ton</p><div>{TONES.map(t=><Tag key={t} label={t} active={tone===t} onClick={()=>setTone(t)}/>)}</div></div>
+          <div><p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Style</p><div>{STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}</div></div>
+        </div>
+        <Btn sm onClick={handleGenBase} disabled={!axis||!tone||!style||loadBase} style={{marginBottom:12}}>{loadBase?"Génération…":basePost?"↺ Regénérer le post de base":"Générer le post de base"}</Btn>
+        {basePost&&<>
+          <div style={{background:C.gray50,borderLeft:`3px solid ${C.gray200}`,borderRadius:"0 8px 8px 0",padding:"9px 11px",fontSize:12,lineHeight:1.6,color:C.gray600,marginBottom:12,maxHeight:100,overflowY:"auto"}}>{basePost}</div>
+          {questions.length===0?<Btn sm onClick={handleGenQ} disabled={loadQ}>{loadQ?"Génération…":"Générer les questions"}</Btn>
+          :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {questions.map((q,i)=><div key={i}>
+              <div style={{background:C.gray50,borderLeft:`3px solid ${C.navy}`,borderRadius:"0 8px 8px 0",padding:"8px 10px",marginBottom:6}}><p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p></div>
+              <textarea value={answers[i]||""} onChange={e=>setAnswers(p=>({...p,[i]:e.target.value}))} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+            </div>)}
+            <Btn full onClick={handleEnrich} disabled={loadE}>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
+          </div>}
+        </>}
+      </Card>
+      {enriched
+        ?<Card style={{borderTop:`3px solid ${C.green}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post enrichi</span><CharBadge n={enriched.length}/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>navigator.clipboard.writeText(enriched)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={()=>{onSavePost({content:enriched,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+            </div>
+          </div>
+          <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:12}}>{enriched}</div>
+          <Btn sm variant="secondary" onClick={handleEnrich} disabled={loadE}>↺ Regénérer</Btn>
+        </Card>
+        :<Card style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:300,background:C.gray50,border:`0.5px dashed ${C.gray200}`}}>
+          <div style={{width:40,height:40,borderRadius:"50%",border:`1.5px solid ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:12}}><div style={{width:14,height:14,borderRadius:"50%",background:C.navy,opacity:0.25}}/></div>
+          <p style={{fontSize:12,color:C.gray400,textAlign:"center",lineHeight:1.5}}>Le post enrichi<br/>apparaîtra ici</p>
+        </Card>
+      }
+    </div>
+  );
+}
+
+function AnalyserTab({showToast}) {
+  const [post,     setPost]     = useState("");
+  const [analysis, setAnalysis] = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  async function handleAnalyze() {
+    if (!post) return;
+    setLoading(true);
+    try { const txt=await callClaude(`Analyse ce post LinkedIn :\n\n${post}`,`Expert LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}`,700); const p=parseJSON(txt); if(p){setAnalysis(p);}else showToast("⚠️ Format inattendu"); }
+    catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <Card>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}><span style={{fontSize:13,fontWeight:500}}>Post à analyser</span><CharBadge n={post.length}/></div>
+        <textarea value={post} onChange={e=>setPost(e.target.value)} placeholder="Collez votre post ici…" rows={10} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:12}}/>
+        <Btn onClick={handleAnalyze} disabled={!post||loading} full>{loading?"Analyse…":"Analyser ce post"}</Btn>
+      </Card>
+      <Card>
+        {!analysis?<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}><p style={{fontSize:13,color:C.gray400}}>Les résultats apparaîtront ici.</p></div>
+        :<>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:14,fontWeight:500}}>Résultats</span><span style={{fontSize:28,fontWeight:500,color:analysis.score>=7?C.green:analysis.score>=5?C.amber:C.red}}>{analysis.score}<span style={{fontSize:13,color:C.gray400}}>/10</span></span></div>
+          {[{k:"hook",l:"Hook"},{k:"structure",l:"Structure"},{k:"ton",l:"Ton"},{k:"longueur",l:"Longueur"}].map(({k,l})=>analysis[k]&&<ScoreBar key={k} label={l} note={analysis[k].note}/>)}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+            {analysis.points_forts?.length>0&&<div style={{background:"#F0FDF4",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#15803D",marginBottom:5}}>Points forts</p>{analysis.points_forts.map((p,i)=><p key={i} style={{fontSize:11,color:"#166534",marginBottom:3}}>· {p}</p>)}</div>}
+            {analysis.points_faibles?.length>0&&<div style={{background:"#FEF2F2",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#B91C1C",marginBottom:5}}>À améliorer</p>{analysis.points_faibles.map((p,i)=><p key={i} style={{fontSize:11,color:"#991B1B",marginBottom:3}}>· {p}</p>)}</div>}
+          </div>
+          {analysis.recommandations?.length>0&&<div style={{background:C.navyLight,borderRadius:8,padding:10,marginTop:10}}><p style={{fontSize:12,fontWeight:500,color:C.navy,marginBottom:7}}>Recommandations</p>{analysis.recommandations.map((r,i)=><p key={i} style={{fontSize:12,color:C.gray600,marginBottom:5}}>{i+1}. {r}</p>)}</div>}
+        </>}
+      </Card>
+    </div>
+  );
+}
+
+function OptimiserTab({onSavePost,showToast}) {
+  const [post,      setPost]      = useState("");
+  const [selAxes,   setSelAxes]   = useState([]);
+  const [freeInst,  setFreeInst]  = useState("");
+  const [optimPost, setOptimPost] = useState("");
+  const [loading,   setLoading]   = useState(false);
+  async function handleOptimize() {
+    if (!post) return;
+    setLoading(true);
+    try { const desc=selAxes.map(id=>{const a=OPTIM_AXES.find(x=>x.id===id);return a?`- ${a.label} : ${a.desc}`:""}).filter(Boolean).join("\n"); const instr=[desc,freeInst.trim()].filter(Boolean).join("\n\nInstruction libre :\n")||"Améliore globalement."; const txt=await callClaude(`Optimise :\n${instr}\n\nPost :\n${post}`,LINKEDIN_RULES); setOptimPost(txt); }
+    catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+      <Card>
+        <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:12}}>Axes d'optimisation</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:14}}>
+          {OPTIM_AXES.map(a=>{const sel=selAxes.includes(a.id);return <div key={a.id} onClick={()=>setSelAxes(p=>sel?p.filter(x=>x!==a.id):[...p,a.id])} style={{padding:"9px 10px",borderRadius:8,cursor:"pointer",border:`0.5px solid ${sel?C.navy:C.gray200}`,background:sel?C.navyLight:"#fff"}}><p style={{fontSize:12,fontWeight:500,color:sel?C.navy:C.gray900,marginBottom:1}}>{a.label}</p><p style={{fontSize:10,color:C.gray400}}>{a.desc}</p></div>;})}
+        </div>
+        <p style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:6}}>Post à optimiser</p>
+        <textarea value={post} onChange={e=>setPost(e.target.value)} placeholder="Collez votre post ici…" rows={5} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6,marginBottom:10}}/>
+        <Field label="Instruction libre" value={freeInst} onChange={setFreeInst} placeholder="Ex : Rends plus adapté à une audience DSI…" rows={2}/>
+        <Btn full onClick={handleOptimize} disabled={!post||(selAxes.length===0&&!freeInst.trim())||loading}>{loading?"Optimisation…":`Optimiser${selAxes.length?` (${selAxes.length})`:""}`}</Btn>
+      </Card>
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {post&&<Card><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:12,fontWeight:500,color:C.gray600}}>Post de base</span><CharBadge n={post.length}/></div><div style={{background:C.gray50,borderRadius:8,padding:10,fontSize:12,lineHeight:1.6,color:C.gray600,maxHeight:120,overflowY:"auto",opacity:0.8}}>{post}</div></Card>}
+        {optimPost&&<Card style={{borderTop:`3px solid ${C.green}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post optimisé</span><CharBadge n={optimPost.length}/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>navigator.clipboard.writeText(optimPost)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={()=>{onSavePost({content:optimPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+            </div>
+          </div>
+          <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:10}}>{optimPost}</div>
+          <div style={{display:"flex",gap:6}}><Btn sm variant="secondary" onClick={handleOptimize} disabled={loading}>↺ Regénérer</Btn><Btn sm variant="secondary" onClick={()=>{setPost(optimPost);setOptimPost("");}}>→ Nouvelle base</Btn></div>
+        </Card>}
+      </div>
+    </div>
+  );
+}
+
+function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
+  const [activeTab, setActiveTab] = useState("generer");
+  const TABS = [{id:"generer",label:"Générer"},{id:"interview",label:"Interview"},{id:"analyser",label:"Analyser"},{id:"optimiser",label:"Optimiser"}];
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}}>
+      <div style={{height:40,background:"#fff",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"stretch",padding:"0 1.25rem",flexShrink:0}}>
+        {TABS.map(tab=>{const isOn=activeTab===tab.id;return <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:`2px solid ${isOn?C.navy:"transparent"}`,background:"none",border:"none",borderBottom:`2px solid ${isOn?C.navy:"transparent"}`,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;})}
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
+        <div style={{maxWidth:900,margin:"0 auto"}}>
+          {activeTab==="generer"   &&<GenererTab   profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast}/>}
+          {activeTab==="interview" &&<InterviewTab profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast}/>}
+          {activeTab==="analyser"  &&<AnalyserTab  showToast={showToast}/>}
+          {activeTab==="optimiser" &&<OptimiserTab onSavePost={onSavePost} showToast={showToast}/>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MES POSTS TAB ─────────────────────────────────────────────────
+function MesPostsTab({posts,onDelete}) {
+  const [filter, setFilter] = useState("all");
+  const axes     = [...new Set(posts.map(p=>p.axis).filter(Boolean))];
+  const filtered = filter==="all"?posts:posts.filter(p=>p.axis===filter);
+  return (
+    <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.5rem",background:C.gray50}}>
+      <div style={{maxWidth:900,margin:"0 auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <p style={{fontSize:16,fontWeight:500,color:C.gray900}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({posts.length})</span></p>
+        </div>
+        <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
+          {["all",...axes].map(a=><button key={a} onClick={()=>setFilter(a)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>)}
+        </div>
+        {filtered.length===0?<Empty icon="📝" text="Aucun post sauvegardé."/>
+        :<div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+          {filtered.map(p=><div key={p.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,padding:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {p.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{p.axis}</span>}
+                {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}{p.style?` · ${p.style}`:""}</span>}
+              </div>
+              <span style={{fontSize:11,color:C.gray400,flexShrink:0}}>{p.date}</span>
+            </div>
+            <p style={{fontSize:13,color:C.gray900,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 50%, transparent)",marginBottom:10}}>{p.content}</p>
+            <div style={{display:"flex",gap:10,borderTop:`0.5px solid ${C.gray200}`,paddingTop:8}}>
+              <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={()=>onDelete(p.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
+            </div>
+          </div>)}
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── INSIGHTS TAB ──────────────────────────────────────────────────
+function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
+  const [selPost,  setSelPost]  = useState("");
+  const [metrics,  setMetrics]  = useState({impressions:"",likes:"",comments:""});
+  const [improved, setImproved] = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const engRate  = metrics.impressions?(((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1):null;
+  const avgImp   = insights.length?Math.round(insights.reduce((s,i)=>s+(+i.impressions||0),0)/insights.length):null;
+  const avgEng   = insights.length?(insights.reduce((s,i)=>{const e=i.impressions?((+i.likes||0)+(+i.comments||0))/+i.impressions*100:0;return s+e;},0)/insights.length).toFixed(1):null;
+
+  async function handleAnalyze() {
+    if (!selPost.trim()) return;
+    setLoading(true);
+    try {
+      const hist=insights.slice(0,3).map(i=>`impressions:${i.impressions} likes:${i.likes} comments:${i.comments}`).join(" | ");
+      const txt=await callClaude(`Post :\n${selPost}\nPerf : impressions=${metrics.impressions}, likes=${metrics.likes}, commentaires=${metrics.comments}${hist?"\nHistorique : "+hist:""}\n\nAnalyse et génère une version améliorée.`,LINKEDIN_RULES);
+      setImproved(txt);
+      onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments});
+      showToast("✓ Analyse enregistrée");
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"calc(100vh - 56px)"}}>
+      <div style={{padding:"1.5rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
+        <div><p style={{fontSize:15,fontWeight:500,color:C.gray900,marginBottom:4}}>Insights J+7</p><p style={{fontSize:12,color:C.gray400,lineHeight:1.5}}>{insights.length>0?`L'IA tient compte de vos ${insights.length} analyse(s) précédente(s).`:"Renseignez les performances d'un post publié."}</p></div>
+        <div style={{border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden"}}>
+          <div style={{padding:"8px 12px",background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
+            <span style={{fontSize:11,fontWeight:500,color:C.gray900}}>Choisir le post</span>
+          </div>
+          {selPost
+            ?<div style={{padding:"10px 12px",background:C.navyLight,borderLeft:`3px solid ${C.navy}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                <p style={{fontSize:12,fontWeight:500,color:C.navy,lineHeight:1.5,flex:1}}>{selPost.slice(0,120)}{selPost.length>120?"…":""}</p>
+                <button onClick={()=>{setSelPost("");setImproved("");}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,flexShrink:0,marginLeft:8,fontFamily:"inherit"}}>Changer →</button>
+              </div>
+            </div>
+            :<div style={{padding:"10px 12px"}}>
+              {posts.length>0&&<select value="" onChange={e=>setSelPost(e.target.value)} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:12,marginBottom:8,background:C.gray50,outline:"none",color:C.gray900,fontFamily:"inherit"}}>
+                <option value="">Choisir un post sauvegardé…</option>
+                {posts.map(p=><option key={p.id} value={p.content}>{p.axis?`[${p.axis}] `:""}{p.date} — {p.content.slice(0,50)}…</option>)}
+              </select>}
+              <textarea value={selPost} onChange={e=>setSelPost(e.target.value)} placeholder="Ou collez votre post ici…" rows={3} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/>
+            </div>
+          }
+        </div>
+        <div style={{border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden"}}>
+          <div style={{padding:"8px 12px",background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
+            <span style={{fontSize:11,fontWeight:500,color:C.gray900}}>Performances J+7</span>
+            <span style={{fontSize:10,color:C.gray400}}>— à saisir après publication</span>
+          </div>
+          <div style={{padding:"10px 12px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+              {[{l:"Impressions",k:"impressions"},{l:"Likes",k:"likes"},{l:"Commentaires",k:"comments"}].map(({l,k})=><div key={k}>
+                <p style={{fontSize:11,color:C.gray600,marginBottom:4}}>{l}</p>
+                <input type="number" min="0" value={metrics[k]} onChange={e=>setMetrics(m=>({...m,[k]:e.target.value}))} placeholder="0" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`0.5px solid ${C.gray200}`,fontSize:13,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+              </div>)}
+            </div>
+            {engRate&&<div style={{padding:"6px 10px",background:C.gray50,borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray600}}>Taux d'engagement calculé</span><span style={{fontSize:13,fontWeight:500,color:C.green}}>{engRate}%</span></div>}
+          </div>
+        </div>
+        <Btn full onClick={handleAnalyze} disabled={!selPost.trim()||loading}>{loading?"Analyse…":"✦ Analyser & générer une version améliorée"}</Btn>
+        {improved&&<div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <span style={{fontSize:13,fontWeight:500,color:C.green}}>Post amélioré</span>
+            <button onClick={()=>navigator.clipboard.writeText(improved)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+          </div>
+          <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{improved}</div>
+        </div>}
+      </div>
+      <div style={{padding:"1.5rem",background:C.gray50,overflowY:"auto"}}>
+        <p style={{fontSize:14,fontWeight:500,color:C.gray900,marginBottom:12}}>Historique des analyses</p>
+        {insights.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>
+          {[{l:"Moy. impressions",v:avgImp?.toLocaleString("fr-FR")||"—"},{l:"Moy. engagement",v:avgEng?`${avgEng}%`:"—",green:true},{l:"Posts analysés",v:insights.length}].map(({l,v,green})=><div key={l} style={{flex:1,background:"#fff",borderRadius:8,padding:10,textAlign:"center"}}><p style={{fontSize:10,color:C.gray400,marginBottom:4}}>{l}</p><p style={{fontSize:20,fontWeight:500,color:green?C.green:C.gray900}}>{v}</p></div>)}
+        </div>}
+        {insights.length===0?<Empty icon="📈" text="Aucune analyse enregistrée."/>
+        :insights.map(ins=>{
+          const eng=ins.impressions?(((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1):null;
+          return <div key={ins.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden",marginBottom:8}}>
+            <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><button onClick={()=>onDeleteInsight(ins.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Suppr.</button></div>
+            <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
+            <div style={{padding:"8px 12px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+              {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?`${eng}%`:"—",green:true}].map(({l,v,green})=><div key={l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{l}</p><p style={{fontSize:13,fontWeight:500,color:green?C.green:C.gray900}}>{v||"—"}</p></div>)}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── APP SHELL ─────────────────────────────────────────────────────
+function AppShell() {
+  const {toastMsg, showToast} = (() => {
+    const [msg, setMsg] = useState("");
+    const t = useRef(null);
+    return {toastMsg:msg, showToast:(m)=>{ clearTimeout(t.current); setMsg(m); t.current=setTimeout(()=>setMsg(""),2800); }};
+  })();
+
+  const [activeTab,     setActiveTab]     = useState("profil");
+  const [profile,       setProfile]       = useState(()=>store.get(SK.PROFILE));
+  const [axesSessions,  setAxesSessions]  = useState(()=>store.get(SK.AXES,[]));
+  const [favAxes,       setFavAxes]       = useState(()=>store.get(SK.FAV,[]));
+  const [selectedAxes,  setSelectedAxes]  = useState(()=>store.get(SK.SEL,[]));
+  const [roadmaps,      setRoadmaps]      = useState(()=>store.get(SK.ROADMAPS,[]));
+  const [activeRmId,    setActiveRmId]    = useState(()=>store.get(SK.ACTIVE_RM));
+  const [pubWeeks,      setPubWeeks]      = useState(()=>new Set(store.get(SK.PUB,[])));
+  const [posts,         setPosts]         = useState(()=>store.get(SK.POSTS,[]));
+  const [insights,      setInsights]      = useState(()=>store.get(SK.INSIGHTS,[]));
+  const [creerPrefill,  setCreerPrefill]  = useState(null);
+
+  function save(key, setter) {
+    return (val) => { const v=val instanceof Function?val(store.get(key)):val; setter(v); store.set(key,v instanceof Set?[...v]:v); };
+  }
+  const saveProfile      = save(SK.PROFILE,  setProfile);
+  const saveAxesSessions = save(SK.AXES,     setAxesSessions);
+  const saveFavAxes      = save(SK.FAV,      setFavAxes);
+  const saveSelectedAxes = save(SK.SEL,      setSelectedAxes);
+  const saveRoadmaps     = save(SK.ROADMAPS, setRoadmaps);
+  const saveActiveRmId   = save(SK.ACTIVE_RM,setActiveRmId);
+  const savePosts        = save(SK.POSTS,    setPosts);
+  const saveInsights     = save(SK.INSIGHTS, setInsights);
+
+  function createRoadmap() {
+    const rm={id:uid(),name:`Roadmap ${roadmaps.length+1}`,createdAt:toDay(),weeks:[]};
+    saveRoadmaps(p=>[...p,rm]); saveActiveRmId(rm.id); return rm;
+  }
+
+  return (
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <Toast message={toastMsg}/>
+      <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
+      <main style={{flex:1,overflow:"hidden"}}>
+        {activeTab==="profil"   &&<ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
+        {activeTab==="axes"     &&<AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
+        {activeTab==="roadmap"  &&<RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
+        {activeTab==="creer"    &&<CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
+        {activeTab==="mesposts" &&<MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
+        {activeTab==="insights" &&<InsightsTab insights={insights} posts={posts} onAddInsight={i=>saveInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>saveInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
+      </main>
+    </div>
+  );
+}
+
+// ─── POINT D'ENTRÉE ────────────────────────────────────────────────
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <AuthProvider>
+    <ProtectedRoute>
+      <AppShell/>
+    </ProtectedRoute>
+  </AuthProvider>
+);
+</script>
 </body>
 </html>
