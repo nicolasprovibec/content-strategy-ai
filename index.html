@@ -91,9 +91,15 @@ function parseJSON(txt) {
 }
 
 async function callClaude(userMsg, system="", maxTokens=1200) {
-  const user  = netlifyIdentity.currentUser();
+  let user = netlifyIdentity.currentUser();
+  if (!user) throw new Error("Utilisateur non authentifié.");
+  
+  // Rafraîchit le token si nécessaire
+  try { await user.jwt(true); user = netlifyIdentity.currentUser(); } catch {}
+  
   const token = user?.token?.access_token || null;
-  if (!token) throw new Error("Utilisateur non authentifié.");
+  if (!token) throw new Error("Token invalide.");
+  
   const res = await fetch("/.netlify/functions/claude", {
     method:"POST",
     headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
