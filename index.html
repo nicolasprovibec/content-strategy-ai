@@ -425,12 +425,12 @@ function RoadmapTab(props) {
     try {
       var axesTitles = JSON.stringify(props.selectedAxes.map(function(a){return a.title;}));
       var nbWeeks = dur * 4;
-      var prompt = "Profil : " + (props.profile&&props.profile.name?props.profile.name:"") + " — " + (props.profile&&props.profile.vision?props.profile.vision:"") + "\n"
-        + "Axes : " + axesTitles + "\n"
-        + "Génère une roadmap LinkedIn de " + dur + " mois (" + nbWeeks + " semaines) en français.\n"
-        + "Répartis les axes équitablement. Pour chaque semaine fournis : week (1 à " + nbWeeks + "), month (Mois 1 à Mois " + dur + "), theme, detail, axis, tone, style, hook.\n"
-        + "Réponds UNIQUEMENT avec un objet JSON valide.";
-      var sys = "Format JSON attendu : {\"weeks\":[{\"week\":1,\"month\":\"Mois 1\",\"theme\":\"...\",\"detail\":\"...\",\"axis\":\"...\",\"tone\":\"...\",\"style\":\"...\",\"hook\":\"...\"}]}";
+     var prompt = "Profil : " + (props.profile&&props.profile.name?props.profile.name:"") + " — " + (props.profile&&props.profile.vision?props.profile.vision:"") + "\n"
+  + "Axes : " + axesTitles + "\n"
+  + "Génère une roadmap LinkedIn de " + dur + " mois (" + nbWeeks + " semaines).\n"
+  + "IMPORTANT : sois très concis, max 5 mots par champ.\n"
+  + "Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.";
+     var sys = "{\"weeks\":[{\"week\":1,\"month\":\"Mois 1\",\"theme\":\"Titre court\",\"detail\":\"Une phrase\",\"axis\":\"Axe exact\",\"tone\":\"Inspirant\",\"style\":\"Storytelling\",\"hook\":\"Accroche\"}]}";
       var txt = await callClaude(prompt, sys, 2500);
       console.log("Réponse roadmap :", txt.substring(0,200));
       var parsed = parseJSON(txt);
