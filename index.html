@@ -19,18 +19,15 @@
 <div id="root"></div>
 
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<script>
+  netlifyIdentity.init({ logo: false });
+  if (window.location.hash && window.location.hash.includes('recovery_token')) {
+    netlifyIdentity.open();
+  }
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-
-<script>
-  // Initialisation Netlify Identity AVANT React
-netlifyIdentity.init({ logo: false });
-// Intercepte les tokens de récupération dans l'URL
-if (window.location.hash && window.location.hash.includes('recovery_token')) {
-  netlifyIdentity.open();
-}
-</script>
 
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
@@ -93,13 +90,9 @@ function parseJSON(txt) {
 async function callClaude(userMsg, system="", maxTokens=1200) {
   let user = netlifyIdentity.currentUser();
   if (!user) throw new Error("Utilisateur non authentifié.");
-  
-  // Rafraîchit le token si nécessaire
   try { await user.jwt(true); user = netlifyIdentity.currentUser(); } catch {}
-  
   const token = user?.token?.access_token || null;
   if (!token) throw new Error("Token invalide.");
-  
   const res = await fetch("/.netlify/functions/claude", {
     method:"POST",
     headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
@@ -155,75 +148,34 @@ function ScoreBar({label,note}) {
   return <div style={{marginBottom:8}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,fontWeight:500}}>{label}</span><span style={{fontSize:12,fontWeight:500,color}}>{note}/10</span></div><div style={{height:4,background:C.gray100,borderRadius:10}}><div style={{height:4,borderRadius:10,width:`${(note||0)*10}%`,background:color}}/></div></div>;
 }
 
-// ─── AUTH CONTEXT ──────────────────────────────────────────────────
+// ─── AUTH ──────────────────────────────────────────────────────────
 const AuthContext = React.createContext(null);
-
 function AuthProvider({children}) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
-
-  function isAllowed(u) {
-    return ALLOWED_DOMAINS.some(d => u?.email?.endsWith(d));
-  }
-
-  function logout() {
-    netlifyIdentity.logout();
-    store.clear();
-    setUser(null);
-  }
-
-  useEffect(() => {
-    // Vérifie si un utilisateur est déjà connecté
+  function isAllowed(u) { return ALLOWED_DOMAINS.some(d=>u?.email?.endsWith(d)); }
+  function logout() { netlifyIdentity.logout(); store.clear(); setUser(null); }
+  useEffect(()=>{
     const cur = netlifyIdentity.currentUser();
-    if (cur) {
-      if (isAllowed(cur)) setUser(cur);
-      else { netlifyIdentity.logout(); setError("Domaine non autorisé."); }
-    }
+    if (cur) { isAllowed(cur)?setUser(cur):(netlifyIdentity.logout(),setError("Domaine non autorisé.")); }
     setLoading(false);
-
-    // Événement login — déclenché par le widget Netlify
-    netlifyIdentity.on("login", u => {
-      netlifyIdentity.close();
-      if (isAllowed(u)) { setUser(u); setError(null); }
-      else { netlifyIdentity.logout(); setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(", ")}.`); }
-    });
-
-    netlifyIdentity.on("logout", () => setUser(null));
-
-    return () => {
-      netlifyIdentity.off("login");
-      netlifyIdentity.off("logout");
-    };
-  }, []);
-
-  return (
-    <AuthContext.Provider value={{user, loading, error, logout}}>
-      {children}
-    </AuthContext.Provider>
-  );
+    netlifyIdentity.on("login", u=>{ netlifyIdentity.close(); isAllowed(u)?(setUser(u),setError(null)):(netlifyIdentity.logout(),setError(`Accès réservé aux adresses ${ALLOWED_DOMAINS.join(", ")}.`)); });
+    netlifyIdentity.on("logout", ()=>setUser(null));
+    return ()=>{ netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
+  },[]);
+  return <AuthContext.Provider value={{user,loading,error,logout}}>{children}</AuthContext.Provider>;
 }
+function useAuth() { return React.useContext(AuthContext); }
 
-function useAuth() {
-  return React.useContext(AuthContext);
-}
-
-// ─── LOGIN PAGE ────────────────────────────────────────────────────
+// ─── LOGIN ─────────────────────────────────────────────────────────
 function LoginPage() {
-  const { error } = useAuth();
-
-  function handleLogin() {
-    netlifyIdentity.open("login");
-  }
-
+  const {error} = useAuth();
   return (
     <div style={{height:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-      {/* Panneau gauche */}
       <div style={{background:C.navy,padding:"2.5rem",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:32,height:32,borderRadius:9,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{width:10,height:10,borderRadius:"50%",background:"#fff"}}/>
-          </div>
+          <div style={{width:32,height:32,borderRadius:9,background:"rgba(255,255,255,0.15)",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:10,height:10,borderRadius:"50%",background:"#fff"}}/></div>
           <span style={{fontSize:14,fontWeight:500,color:"#fff"}}>Content Strategy AI</span>
         </div>
         <div>
@@ -231,37 +183,21 @@ function LoginPage() {
           <p style={{fontSize:13,color:"rgba(255,255,255,0.55)",lineHeight:1.6,marginBottom:28}}>Axes de contenu, roadmap éditoriale, génération et optimisation de posts.</p>
           {["Génération de posts calibrés à votre marque","Roadmap éditoriale jusqu'à 18 mois","Analyse et optimisation post publication"].map(p=>(
             <div key={p} style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-              <div style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                <div style={{width:6,height:6,borderRadius:"50%",background:"rgba(255,255,255,0.6)"}}/>
-              </div>
+              <div style={{width:18,height:18,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.25)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><div style={{width:6,height:6,borderRadius:"50%",background:"rgba(255,255,255,0.6)"}}/></div>
               <span style={{fontSize:13,color:"rgba(255,255,255,0.65)"}}>{p}</span>
             </div>
           ))}
         </div>
         <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Accès sur invitation uniquement</p>
       </div>
-
-      {/* Panneau droit */}
       <div style={{background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2.5rem"}}>
         <p style={{fontSize:22,fontWeight:500,color:C.gray900,marginBottom:6}}>Connexion</p>
         <p style={{fontSize:13,color:C.gray400,marginBottom:32,textAlign:"center"}}>Accédez à votre espace de création</p>
-
-        <button
-          onClick={handleLogin}
-          style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:12,border:`0.5px solid ${C.gray200}`,borderRadius:8,background:C.navy,cursor:"pointer",fontSize:14,fontWeight:500,color:"#fff",fontFamily:"inherit"}}
-        >
+        <button onClick={()=>netlifyIdentity.open("login")} style={{width:"100%",maxWidth:300,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:12,border:`0.5px solid ${C.gray200}`,borderRadius:8,background:C.navy,cursor:"pointer",fontSize:14,fontWeight:500,color:"#fff",fontFamily:"inherit"}}>
           Se connecter
         </button>
-
-        {error && (
-          <div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>
-            {error}
-          </div>
-        )}
-
-        <p style={{marginTop:24,fontSize:12,color:C.gray400,textAlign:"center"}}>
-          Accès sur invitation — contactez votre administrateur
-        </p>
+        {error&&<div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>{error}</div>}
+        <p style={{marginTop:24,fontSize:12,color:C.gray400,textAlign:"center"}}>Accès sur invitation — contactez votre administrateur</p>
       </div>
     </div>
   );
@@ -269,32 +205,27 @@ function LoginPage() {
 
 // ─── PROTECTED ROUTE ───────────────────────────────────────────────
 function ProtectedRoute({children}) {
-  const {user, loading} = useAuth();
+  const {user,loading} = useAuth();
   if (loading) return <div style={{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:C.gray400}}>Chargement…</div>;
   if (!user)   return <LoginPage/>;
   return children;
 }
 
 // ─── NAVBAR ────────────────────────────────────────────────────────
-function NavBar({activeTab, onTabChange, postCount, insightCount}) {
-  const {user, logout} = useAuth();
-  const initials    = user?.email?.[0]?.toUpperCase() ?? "?";
-  const displayName = user?.user_metadata?.full_name || user?.email || "Profil";
+function NavBar({activeTab,onTabChange,postCount,insightCount}) {
+  const {user,logout} = useAuth();
+  const initials    = user?.email?.[0]?.toUpperCase()??"?";
+  const displayName = user?.user_metadata?.full_name||user?.email||"Profil";
   return (
     <nav style={{height:56,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,background:"#fff",flexShrink:0}}>
       <div style={{display:"flex",alignItems:"center",gap:9,flexShrink:0,marginRight:10}}>
-        <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/>
-        </div>
-        <div>
-          <div style={{fontSize:13,fontWeight:500,color:C.gray900,lineHeight:1}}>Content Strategy AI</div>
-          <div style={{fontSize:10,color:C.gray400,marginTop:1}}>Powered by Claude</div>
-        </div>
+        <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
+        <div><div style={{fontSize:13,fontWeight:500,color:C.gray900,lineHeight:1}}>Content Strategy AI</div><div style={{fontSize:10,color:C.gray400,marginTop:1}}>Powered by Claude</div></div>
       </div>
       <div style={{display:"flex",gap:2,flex:1,overflowX:"auto"}}>
         {NAV_ITEMS.map(item=>{
-          const isOn = activeTab===item.id;
-          const cnt  = item.id==="mesposts"?postCount:item.id==="insights"?insightCount:0;
+          const isOn=activeTab===item.id;
+          const cnt=item.id==="mesposts"?postCount:item.id==="insights"?insightCount:0;
           return <button key={item.id} onClick={()=>onTabChange(item.id)} style={{padding:"5px 12px",borderRadius:20,fontSize:12,background:isOn?C.navyLight:"transparent",color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,whiteSpace:"nowrap",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}>
             {item.label}{cnt>0&&<span style={{background:C.navy,color:"#fff",borderRadius:10,padding:"1px 5px",fontSize:9}}>{cnt}</span>}
           </button>;
@@ -309,14 +240,13 @@ function NavBar({activeTab, onTabChange, postCount, insightCount}) {
 }
 
 // ─── PROFIL TAB ────────────────────────────────────────────────────
-function ProfilTab({profile, onSave, showToast, onAxesGenerated}) {
+function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
   const [name,    setName]    = useState(profile?.name||"");
   const [vision,  setVision]  = useState(profile?.vision||"");
   const [context, setContext] = useState(profile?.context||"");
   const [loading, setLoading] = useState(false);
   useEffect(()=>{setName(profile?.name||"");setVision(profile?.vision||"");setContext(profile?.context||"");},[profile]);
   const isValid = name.trim()&&vision.trim()&&context.trim();
-
   async function handleGenAxes() {
     if (!isValid) return;
     onSave({name,vision,context});
@@ -330,7 +260,6 @@ function ProfilTab({profile, onSave, showToast, onAxesGenerated}) {
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
       <div style={{padding:"2rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,display:"flex",flexDirection:"column",overflowY:"auto"}}>
@@ -368,158 +297,23 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
   const [marked,  setMarked]  = useState([]);
   const [filter,  setFilter]  = useState("all");
   const [loading, setLoading] = useState(false);
+
   const allAxes = axesSessions.flatMap(s=>s.axes);
   const usedIds = new Set(selectedAxes.map(a=>a.id));
   const favIds  = new Set(favAxes);
-  const kept    = allAxes.filter(a=>!marked.find(x=>x.id===a.id));
 
-  const filteredSessions = axesSessions.map(s=>({...s,axes:s.axes.filter(a=>{
-    if(filter==="fav")  return favIds.has(a.id);
-    if(filter==="used") return usedIds.has(a.id);
-    if(filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
-    return true;
-  })})).filter(s=>s.axes.length>0);
-
-  async function regen(count, existing) {
-  if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
-  setLoading(true);
-  try {
-    const txt = await callClaude(
-      `Profil : ${profile.name} — ${profile.vision}\nAxes existants à ne pas reproduire : ${JSON.stringify(existing.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,
-      `Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`,
-      700
-    );
-    const parsed = parseJSON(txt);
-    if (parsed?.axes?.length) {
-      const withIds = parsed.axes.map(a=>({...a, id:uid()}));
-      const newAxes = count === 6 ? withIds : [...kept, ...withIds];
-      const session = {id:uid(), label:`Regénération — ${toDay()}`, createdAt:toDay(), axes:newAxes};
-      onAxesGenerated(session);
-      setMarked([]);
-      setMode("select");
-      showToast(`✓ ${parsed.axes.length} axe(s) générés`);
-    } else showToast("⚠️ Format inattendu");
-  } catch(e) { showToast("⚠️ "+e.message); }
-  setLoading(false);
-}
-
-  return (
-    <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
-      <div style={{maxWidth:760,margin:"0 auto"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-          <div style={{display:"flex",gap:4}}>
-            {[{k:"all",l:`Tous (${allAxes.length})`},{k:"fav",l:"Favoris"},{k:"used",l:"Sélectionnés"},{k:"new",l:"Nouveaux"}].map(({k,l})=>(
-              <button key={k} onClick={()=>setFilter(k)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===k?C.navyLight:C.gray100,color:filter===k?C.navy:C.gray600,border:filter===k?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===k?500:400,fontFamily:"inherit"}}>{l}</button>
-            ))}
-          </div>
-          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            <button onClick={()=>{setMode(m=>m==="replace"?"select":"replace");setMarked([]);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:`0.5px solid ${mode==="replace"?C.amber:C.gray200}`,fontFamily:"inherit"}}>{mode==="replace"?"✕ Annuler":"↺ Remplacer des axes"}</button>
-            <Btn sm variant="secondary" onClick={()=>regen(6,allAxes)} disabled={loading}>{loading?"…":"↺ Regénérer 6 nouveaux"}</Btn>
-          </div>
-        </div>
-        {mode==="replace"&&marked.length>0&&(
-          <div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) à remplacer</span>
-            <Btn sm variant="secondary" onClick={()=>regen(marked.length,kept)} disabled={loading} style={{marginLeft:"auto"}}>{loading?"…":`↺ Remplacer ${marked.length}`}</Btn>
-          </div>
-        )}
-        {filteredSessions.length===0&&<Empty icon="🎯" text="Aucun axe trouvé."/>}
-       {(() => {
   // Dédoublonnage par titre
   const seen = new Set();
-  const uniqueAxes = axesSessions.flatMap(s=>s.axes).filter(a => {
+  const uniqueAxes = allAxes.filter(a=>{
     if (seen.has(a.title)) return false;
     seen.add(a.title);
     return true;
-  }).filter(a => {
+  });
+
+  const filteredAxes = uniqueAxes.filter(a=>{
     if (filter==="fav")  return favIds.has(a.id);
     if (filter==="used") return usedIds.has(a.id);
     if (filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
-    return true;
-  });
-
-  if (uniqueAxes.length===0) return <Empty icon="🎯" text="Aucun axe trouvé."/>;
-
-  return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
-      {uniqueAxes.map(a=>{
-        const isSel=usedIds.has(a.id),isFav=favIds.has(a.id),isMk=!!marked.find(x=>x.id===a.id);
-        return (
-          <div key={a.id} onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
-            style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-              <span style={{fontSize:15}}>{a.emoji}</span>
-              <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                {mode!=="replace"&&<span onClick={e=>{e.stopPropagation();onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>}
-                {isSel&&mode!=="replace"&&<div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>}
-              </div>
-            </div>
-            <p style={{fontSize:12,fontWeight:500,color:isSel?C.navy:C.gray900,marginBottom:2}}>{a.title}</p>
-            <p style={{fontSize:11,color:C.gray400,lineHeight:1.3,marginBottom:6}}>{a.description}</p>
-            <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,display:"inline-block",background:isSel?"#F0FDF4":isFav?"#FEF3C7":C.gray100,color:isSel?"#15803D":isFav?"#92400E":C.gray400}}>{isSel?"✓ Sélectionné":isFav?"★ Favori":""}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-})()}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
-              {session.axes.map(a=>{
-                const isSel=usedIds.has(a.id),isFav=favIds.has(a.id),isMk=!!marked.find(x=>x.id===a.id);
-                return (
-                  <div key={a.id} onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
-                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                      <span style={{fontSize:15}}>{a.emoji}</span>
-                      <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                        {mode!=="replace"&&<span onClick={e=>{e.stopPropagation();onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>}
-                        {isSel&&mode!=="replace"&&<div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>}
-                      </div>
-                    </div>
-                    <p style={{fontSize:12,fontWeight:500,color:isSel?C.navy:C.gray900,marginBottom:2}}>{a.title}</p>
-                    <p style={{fontSize:11,color:C.gray400,lineHeight:1.3,marginBottom:6}}>{a.description}</p>
-                    <span style={{fontSize:9,padding:"1px 5px",borderRadius:3,display:"inline-block",background:isSel?"#F0FDF4":isFav?"#FEF3C7":C.gray100,color:isSel?"#15803D":isFav?"#92400E":C.gray400}}>{isSel?"✓ Sélectionné":isFav?"★ Favori":session.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        {selectedAxes.length>0&&mode==="select"&&(
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
-            <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
-            <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── ROADMAP TAB ───────────────────────────────────────────────────
-function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onAxesGenerated,profile,showToast,onGoRoadmap,onGoCreer}) {
-  const [mode,    setMode]    = useState("select");
-  const [marked,  setMarked]  = useState([]);
-  const [filter,  setFilter]  = useState("all");
-  const [loading, setLoading] = useState(false);
-
-  const allAxes = axesSessions.flatMap(s=>s.axes);
-  const usedIds = new Set(selectedAxes.map(a=>a.id));
-  const favIds  = new Set(favAxes);
-  const kept    = allAxes.filter(a=>!marked.find(x=>x.id===a.id));
-
-  // Dédoublonnage par titre — on garde le plus récent
-  const seen = new Set();
-  const uniqueAxes = allAxes.filter(a => {
-    if (seen.has(a.title)) return false;
-    seen.add(a.title);
-    return true;
-  });
-
-  const filteredAxes = uniqueAxes.filter(a => {
-    if (filter==="fav")  return favIds.has(a.id);
-    if (filter==="used") return usedIds.has(a.id);
-    if (filter==="new")  return !usedIds.has(a.id) && !favIds.has(a.id);
     return true;
   });
 
@@ -534,9 +328,10 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
       );
       const parsed = parseJSON(txt);
       if (parsed?.axes?.length) {
-        const withIds = parsed.axes.map(a=>({...a, id:uid()}));
-        const newAxes = count === 6 ? withIds : [...kept, ...withIds];
-        onAxesGenerated({id:uid(), label:`Regénération — ${toDay()}`, createdAt:toDay(), axes:newAxes});
+        const withIds  = parsed.axes.map(a=>({...a,id:uid()}));
+        const kept     = uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id));
+        const newAxes  = count===6 ? withIds : [...kept,...withIds];
+        onAxesGenerated({id:uid(),label:`Regénération — ${toDay()}`,createdAt:toDay(),axes:newAxes});
         setMarked([]); setMode("select");
         showToast(`✓ ${parsed.axes.length} axe(s) générés`);
       } else showToast("⚠️ Format inattendu");
@@ -547,16 +342,9 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
   return (
     <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
       <div style={{maxWidth:760,margin:"0 auto"}}>
-
-        {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:4}}>
-            {[
-              {k:"all",  l:`Tous (${uniqueAxes.length})`},
-              {k:"fav",  l:"Favoris"},
-              {k:"used", l:"Sélectionnés"},
-              {k:"new",  l:"Nouveaux"},
-            ].map(({k,l})=>(
+            {[{k:"all",l:`Tous (${uniqueAxes.length})`},{k:"fav",l:"Favoris"},{k:"used",l:"Sélectionnés"},{k:"new",l:"Nouveaux"}].map(({k,l})=>(
               <button key={k} onClick={()=>setFilter(k)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===k?C.navyLight:C.gray100,color:filter===k?C.navy:C.gray600,border:filter===k?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===k?500:400,fontFamily:"inherit"}}>{l}</button>
             ))}
           </div>
@@ -564,50 +352,38 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
             <button onClick={()=>{setMode(m=>m==="replace"?"select":"replace");setMarked([]);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:`0.5px solid ${mode==="replace"?C.amber:C.gray200}`,fontFamily:"inherit"}}>
               {mode==="replace"?"✕ Annuler":"↺ Remplacer des axes"}
             </button>
-            <Btn sm variant="secondary" onClick={()=>regen(6,uniqueAxes)} disabled={loading}>
-              {loading?"…":"↺ Regénérer 6 nouveaux"}
-            </Btn>
+            <Btn sm variant="secondary" onClick={()=>regen(6,uniqueAxes)} disabled={loading}>{loading?"…":"↺ Regénérer 6 nouveaux"}</Btn>
           </div>
         </div>
 
-        {/* Bandeau remplacement */}
-        {mode==="replace" && marked.length>0 && (
+        {mode==="replace"&&marked.length>0&&(
           <div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) à remplacer</span>
-            <Btn sm variant="secondary" onClick={()=>regen(marked.length, uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))} disabled={loading} style={{marginLeft:"auto"}}>
+            <Btn sm variant="secondary" onClick={()=>regen(marked.length,uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))} disabled={loading} style={{marginLeft:"auto"}}>
               {loading?"…":`↺ Remplacer ${marked.length}`}
             </Btn>
           </div>
         )}
 
-        {/* Grille */}
         {filteredAxes.length===0
           ? <Empty icon="🎯" text="Aucun axe trouvé."/>
           : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
               {filteredAxes.map(a=>{
-                const isSel = usedIds.has(a.id);
-                const isFav = favIds.has(a.id);
-                const isMk  = !!marked.find(x=>x.id===a.id);
+                const isSel=usedIds.has(a.id), isFav=favIds.has(a.id), isMk=!!marked.find(x=>x.id===a.id);
                 return (
                   <div key={a.id}
                     onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
-                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}
-                  >
+                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                       <span style={{fontSize:15}}>{a.emoji}</span>
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                        {mode!=="replace" && (
-                          <span
-                            onClick={e=>{e.stopPropagation();onToggleFav(a.id);}}
-                            style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}
-                          >
-                            {isFav?"★":"☆"}
-                          </span>
+                        {mode!=="replace"&&(
+                          <span onClick={e=>{e.stopPropagation();onToggleFav(a.id);}} style={{fontSize:13,color:isFav?C.amber:C.gray200,cursor:"pointer"}}>{isFav?"★":"☆"}</span>
                         )}
-                        {isSel && mode!=="replace" && (
+                        {isSel&&mode!=="replace"&&(
                           <div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>
                         )}
-                        {isMk && mode==="replace" && (
+                        {isMk&&mode==="replace"&&(
                           <span style={{fontSize:10,background:C.amber,color:"#fff",borderRadius:4,padding:"1px 5px"}}>↺</span>
                         )}
                       </div>
@@ -623,8 +399,7 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
             </div>
         }
 
-        {/* Actions */}
-        {selectedAxes.length>0 && mode==="select" && (
+        {selectedAxes.length>0&&mode==="select"&&(
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
             <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
             <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
@@ -634,6 +409,108 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onA
     </div>
   );
 }
+
+// ─── ROADMAP TAB ───────────────────────────────────────────────────
+function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadmap,onDeleteRoadmap,onRoadmapGenerated,onGoCreer,pubWeeks,selectedAxes,profile,showToast}) {
+  const [dur,         setDur]         = useState(6);
+  const [openQ,       setOpenQ]       = useState([0]);
+  const [loading,     setLoading]     = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0];
+  const weeks    = activeRm?.weeks||[];
+  const months   = [...new Set(weeks.map(w=>w.month))];
+  const quarters = [];
+  for(let i=0;i<months.length;i+=3){
+    const qM=months.slice(i,i+3),qW=weeks.filter(w=>qM.includes(w.month));
+    quarters.push({index:i/3,months:qM,weeks:qW,done:qW.filter(w=>pubWeeks.has(w.week)).length,current:qW.find(w=>!pubWeeks.has(w.week))});
+  }
+  async function handleGen() {
+    if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
+    setLoading(true); showToast("⏳ Génération en cours…");
+    try {
+      const txt = await callClaude(
+        `Profil : ${profile?.name||""} — ${profile?.vision||""}\nAxes : ${JSON.stringify(selectedAxes.map(a=>a.title))}\nGénère une roadmap LinkedIn de ${dur} mois (${dur*4} semaines) en français. Pour chaque semaine : week, month, theme, detail, axis, tone, style, hook.`,
+        `Réponds UNIQUEMENT en JSON valide. Format : {"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}`,2000);
+      const parsed = parseJSON(txt);
+      if (parsed?.weeks?.length) {
+        onRoadmapGenerated({id:uid(),name:`Roadmap ${dur}m — ${toDay()}`,createdAt:toDay(),weeks:parsed.weeks,dur});
+      } else showToast("⚠️ Format inattendu");
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setLoading(false);
+  }
+  return (
+    <div style={{display:"grid",gridTemplateColumns:sidebarOpen?"220px 1fr":"44px 1fr",height:"calc(100vh - 56px)",transition:"grid-template-columns 0.2s"}}>
+      <div style={{background:C.gray50,borderRight:`0.5px solid ${C.gray200}`,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
+        <button onClick={()=>setSidebarOpen(o=>!o)} style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:sidebarOpen?"0 10px 8px":"0 auto 8px",border:"none"}}>
+          <span style={{color:"#fff",fontSize:14,transform:sidebarOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>›</span>
+        </button>
+        {roadmaps.map((rm,i)=>(
+          <div key={rm.id} onClick={()=>onSetActive(rm.id)} style={{borderRadius:6,border:`0.5px solid ${rm.id===activeRmId?C.navy:C.gray200}`,background:rm.id===activeRmId?C.navyLight:"#fff",cursor:"pointer",display:"flex",alignItems:"center",...(sidebarOpen?{padding:"8px 10px",margin:"0 8px",gap:8}:{width:28,height:28,justifyContent:"center",margin:"0 auto"})}}>
+            {sidebarOpen?<><div style={{flex:1,minWidth:0}}><p style={{fontSize:12,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rm.name}</p><p style={{fontSize:10,color:C.gray400}}>{rm.weeks?.length||0} sem.</p></div><button onClick={e=>{e.stopPropagation();onDeleteRoadmap(rm.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer"}}>✕</button></>
+            :<span style={{fontSize:9,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray600}}>R{i+1}</span>}
+          </div>
+        ))}
+        {sidebarOpen?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>
+        :<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:`0.5px dashed ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{height:48,background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
+          {activeRm&&<><span style={{fontSize:12,fontWeight:500,color:C.gray900}}>{activeRm.name}</span><span style={{fontSize:10,padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:20,fontWeight:500}}>Active</span></>}
+          <span style={{fontSize:11,color:C.gray600,marginLeft:8}}>Durée :</span>
+          <div style={{display:"flex",gap:3}}>
+            {DURATIONS.map(d=><button key={d} onClick={()=>setDur(d)} style={{width:34,height:30,borderRadius:7,border:`0.5px solid ${dur===d?C.navy:C.gray200}`,background:dur===d?C.navy:"#fff",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,fontFamily:"inherit"}}>
+              <span style={{fontSize:11,fontWeight:500,color:dur===d?"#fff":C.gray600,lineHeight:1}}>{d}</span>
+              <span style={{fontSize:8,color:dur===d?"rgba(255,255,255,0.7)":C.gray400,lineHeight:1}}>m</span>
+            </button>)}
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+            {activeRm&&<Btn sm variant="secondary" onClick={()=>onRenameRoadmap(activeRm.id)}>Renommer</Btn>}
+            <Btn sm onClick={handleGen} disabled={loading||!selectedAxes.length}>{loading?"Génération…":activeRm?.weeks?.length?"↺ Regénérer":"→ Générer"}</Btn>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",background:C.gray50}}>
+          {!selectedAxes.length&&<div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400E"}}>⚠ Sélectionnez d'abord vos axes.</div>}
+          {!activeRm?.weeks?.length
+            ?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={selectedAxes.length?"Générer":null} onBtn={selectedAxes.length?handleGen:null}/>
+            :quarters.map((q,qi)=>{
+              const isOpen=openQ.includes(qi);
+              return <div key={qi} style={{marginBottom:8}}>
+                <div onClick={()=>setOpenQ(p=>p.includes(qi)?p.filter(x=>x!==qi):[...p,qi])} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none",background:isOpen?C.navyLight:C.gray100,border:`0.5px solid ${isOpen?C.navy:C.gray200}`,borderRadius:isOpen?"9px 9px 0 0":9}}>
+                  <span style={{fontSize:12,fontWeight:500,color:C.navy}}>Trimestre {q.index+1}</span>
+                  <span style={{fontSize:11,color:C.gray400}}>{q.months.join(" · ")}</span>
+                  <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12}}>
+                    {q.done>0&&<span style={{fontSize:11,color:C.green}}>{q.done} publié{q.done>1?"s":""}</span>}
+                    <span style={{fontSize:12,color:C.gray400,transform:isOpen?"rotate(90deg)":"none",transition:"transform 0.15s"}}>›</span>
+                  </div>
+                </div>
+                {isOpen&&<div style={{border:`0.5px solid ${C.navy}`,borderTop:"none",borderRadius:"0 0 9px 9px",padding:12,background:"#fff"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                    {q.months.map(month=><div key={month}>
+                      <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8,paddingBottom:5,borderBottom:`0.5px solid ${C.gray200}`}}>{month}</div>
+                      {q.weeks.filter(w=>w.month===month).map(w=>{
+                        const isDone=pubWeeks.has(w.week),isCur=q.current?.week===w.week;
+                        return <div key={w.week} style={{border:`0.5px solid ${isCur?C.navy:C.gray200}`,borderRadius:7,padding:9,marginBottom:7,background:isCur?C.navyLight:"#fff",opacity:isDone?0.55:1}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                            <span style={{fontSize:10,color:C.gray400}}>Sem. {w.week}</span>
+                            {isDone?<span style={{fontSize:10,color:C.green,fontWeight:500}}>✓ Publié</span>:<button onClick={()=>onGoCreer(w)} style={{fontSize:10,color:C.navy,border:`0.5px solid ${C.navyMid}`,borderRadius:4,padding:"2px 6px",background:C.navyLight,cursor:"pointer",fontFamily:"inherit"}}>Créer →</button>}
+                          </div>
+                          <p style={{fontSize:12,fontWeight:500,lineHeight:1.3,marginBottom:3}}>{w.theme}</p>
+                          <p style={{fontSize:11,color:C.gray400,lineHeight:1.4,marginBottom:5}}>{w.detail}</p>
+                          <span style={{padding:"2px 6px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:10,fontWeight:500}}>{w.axis}</span>
+                        </div>;
+                      })}
+                    </div>)}
+                  </div>
+                </div>}
+              </div>;
+            })
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CRÉER TAB ─────────────────────────────────────────────────────
 function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   const [axis,    setAxis]    = useState(prefill?.axis||selectedAxes[0]||null);
@@ -642,7 +519,6 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   const [post,    setPost]    = useState("");
   const [loading, setLoading] = useState(false);
   useEffect(()=>{if(prefill?.axis)setAxis(prefill.axis);if(prefill?.tone)setTone(prefill.tone);if(prefill?.style)setStyle(prefill.style);},[prefill]);
-
   async function handleGen() {
     if (!axis||!tone||!style||!profile) return;
     setLoading(true);
@@ -653,7 +529,6 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
@@ -669,18 +544,20 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
         <div style={{marginBottom:16}}>{STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}</div>
         <Btn onClick={handleGen} disabled={!axis||!tone||!style||loading} full>{loading?"Génération…":"✦ Générer le post"}</Btn>
       </Card>
-      {post?<Card>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500}}>Post généré</span><CharBadge n={post.length}/></div>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>navigator.clipboard.writeText(post)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-            <button onClick={()=>{onSavePost({content:post,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+      {post
+        ?<Card>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:13,fontWeight:500}}>Post généré</span><CharBadge n={post.length}/></div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>navigator.clipboard.writeText(post)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+              <button onClick={()=>{onSavePost({content:post,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} style={{fontSize:11,color:C.green,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Sauver</button>
+            </div>
           </div>
-        </div>
-        <div style={{background:C.gray50,borderRadius:8,padding:14,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:12}}>{post}</div>
-        <Btn sm variant="secondary" onClick={handleGen} disabled={loading}>↺ Regénérer</Btn>
-      </Card>
-      :<Card style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200,background:C.gray50}}><p style={{fontSize:13,color:C.gray400,textAlign:"center"}}>Le post apparaîtra ici après génération.</p></Card>}
+          <div style={{background:C.gray50,borderRadius:8,padding:14,fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginBottom:12}}>{post}</div>
+          <Btn sm variant="secondary" onClick={handleGen} disabled={loading}>↺ Regénérer</Btn>
+        </Card>
+        :<Card style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200,background:C.gray50}}><p style={{fontSize:13,color:C.gray400,textAlign:"center"}}>Le post apparaîtra ici après génération.</p></Card>
+      }
     </div>
   );
 }
@@ -696,7 +573,6 @@ function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   const [loadBase,  setLoadBase]  = useState(false);
   const [loadQ,     setLoadQ]     = useState(false);
   const [loadE,     setLoadE]     = useState(false);
-
   async function handleGenBase() {
     if (!axis||!tone||!style||!profile) return;
     setLoadBase(true);
@@ -717,7 +593,6 @@ function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
     catch(e) { showToast("⚠️ "+e.message); }
     setLoadE(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
@@ -731,14 +606,16 @@ function InterviewTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
         <Btn sm onClick={handleGenBase} disabled={!axis||!tone||!style||loadBase} style={{marginBottom:12}}>{loadBase?"Génération…":basePost?"↺ Regénérer le post de base":"Générer le post de base"}</Btn>
         {basePost&&<>
           <div style={{background:C.gray50,borderLeft:`3px solid ${C.gray200}`,borderRadius:"0 8px 8px 0",padding:"9px 11px",fontSize:12,lineHeight:1.6,color:C.gray600,marginBottom:12,maxHeight:100,overflowY:"auto"}}>{basePost}</div>
-          {questions.length===0?<Btn sm onClick={handleGenQ} disabled={loadQ}>{loadQ?"Génération…":"Générer les questions"}</Btn>
-          :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {questions.map((q,i)=><div key={i}>
-              <div style={{background:C.gray50,borderLeft:`3px solid ${C.navy}`,borderRadius:"0 8px 8px 0",padding:"8px 10px",marginBottom:6}}><p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p></div>
-              <textarea value={answers[i]||""} onChange={e=>setAnswers(p=>({...p,[i]:e.target.value}))} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
-            </div>)}
-            <Btn full onClick={handleEnrich} disabled={loadE}>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
-          </div>}
+          {questions.length===0
+            ?<Btn sm onClick={handleGenQ} disabled={loadQ}>{loadQ?"Génération…":"Générer les questions"}</Btn>
+            :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {questions.map((q,i)=><div key={i}>
+                <div style={{background:C.gray50,borderLeft:`3px solid ${C.navy}`,borderRadius:"0 8px 8px 0",padding:"8px 10px",marginBottom:6}}><p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p></div>
+                <textarea value={answers[i]||""} onChange={e=>setAnswers(p=>({...p,[i]:e.target.value}))} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:`0.5px solid ${C.gray200}`,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+              </div>)}
+              <Btn full onClick={handleEnrich} disabled={loadE}>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
+            </div>
+          }
         </>}
       </Card>
       {enriched
@@ -769,8 +646,11 @@ function AnalyserTab({showToast}) {
   async function handleAnalyze() {
     if (!post) return;
     setLoading(true);
-    try { const txt=await callClaude(`Analyse ce post LinkedIn :\n\n${post}`,`Expert LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}`,700); const p=parseJSON(txt); if(p){setAnalysis(p);}else showToast("⚠️ Format inattendu"); }
-    catch(e) { showToast("⚠️ "+e.message); }
+    try {
+      const txt=await callClaude(`Analyse ce post LinkedIn :\n\n${post}`,`Expert LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}`,700);
+      const p=parseJSON(txt);
+      if(p) setAnalysis(p); else showToast("⚠️ Format inattendu");
+    } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
   return (
@@ -781,16 +661,18 @@ function AnalyserTab({showToast}) {
         <Btn onClick={handleAnalyze} disabled={!post||loading} full>{loading?"Analyse…":"Analyser ce post"}</Btn>
       </Card>
       <Card>
-        {!analysis?<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}><p style={{fontSize:13,color:C.gray400}}>Les résultats apparaîtront ici.</p></div>
-        :<>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:14,fontWeight:500}}>Résultats</span><span style={{fontSize:28,fontWeight:500,color:analysis.score>=7?C.green:analysis.score>=5?C.amber:C.red}}>{analysis.score}<span style={{fontSize:13,color:C.gray400}}>/10</span></span></div>
-          {[{k:"hook",l:"Hook"},{k:"structure",l:"Structure"},{k:"ton",l:"Ton"},{k:"longueur",l:"Longueur"}].map(({k,l})=>analysis[k]&&<ScoreBar key={k} label={l} note={analysis[k].note}/>)}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
-            {analysis.points_forts?.length>0&&<div style={{background:"#F0FDF4",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#15803D",marginBottom:5}}>Points forts</p>{analysis.points_forts.map((p,i)=><p key={i} style={{fontSize:11,color:"#166534",marginBottom:3}}>· {p}</p>)}</div>}
-            {analysis.points_faibles?.length>0&&<div style={{background:"#FEF2F2",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#B91C1C",marginBottom:5}}>À améliorer</p>{analysis.points_faibles.map((p,i)=><p key={i} style={{fontSize:11,color:"#991B1B",marginBottom:3}}>· {p}</p>)}</div>}
-          </div>
-          {analysis.recommandations?.length>0&&<div style={{background:C.navyLight,borderRadius:8,padding:10,marginTop:10}}><p style={{fontSize:12,fontWeight:500,color:C.navy,marginBottom:7}}>Recommandations</p>{analysis.recommandations.map((r,i)=><p key={i} style={{fontSize:12,color:C.gray600,marginBottom:5}}>{i+1}. {r}</p>)}</div>}
-        </>}
+        {!analysis
+          ?<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}><p style={{fontSize:13,color:C.gray400}}>Les résultats apparaîtront ici.</p></div>
+          :<>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><span style={{fontSize:14,fontWeight:500}}>Résultats</span><span style={{fontSize:28,fontWeight:500,color:analysis.score>=7?C.green:analysis.score>=5?C.amber:C.red}}>{analysis.score}<span style={{fontSize:13,color:C.gray400}}>/10</span></span></div>
+            {[{k:"hook",l:"Hook"},{k:"structure",l:"Structure"},{k:"ton",l:"Ton"},{k:"longueur",l:"Longueur"}].map(({k,l})=>analysis[k]&&<ScoreBar key={k} label={l} note={analysis[k].note}/>)}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:12}}>
+              {analysis.points_forts?.length>0&&<div style={{background:"#F0FDF4",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#15803D",marginBottom:5}}>Points forts</p>{analysis.points_forts.map((p,i)=><p key={i} style={{fontSize:11,color:"#166534",marginBottom:3}}>· {p}</p>)}</div>}
+              {analysis.points_faibles?.length>0&&<div style={{background:"#FEF2F2",borderRadius:8,padding:10}}><p style={{fontSize:11,fontWeight:500,color:"#B91C1C",marginBottom:5}}>À améliorer</p>{analysis.points_faibles.map((p,i)=><p key={i} style={{fontSize:11,color:"#991B1B",marginBottom:3}}>· {p}</p>)}</div>}
+            </div>
+            {analysis.recommandations?.length>0&&<div style={{background:C.navyLight,borderRadius:8,padding:10,marginTop:10}}><p style={{fontSize:12,fontWeight:500,color:C.navy,marginBottom:7}}>Recommandations</p>{analysis.recommandations.map((r,i)=><p key={i} style={{fontSize:12,color:C.gray600,marginBottom:5}}>{i+1}. {r}</p>)}</div>}
+          </>
+        }
       </Card>
     </div>
   );
@@ -805,8 +687,12 @@ function OptimiserTab({onSavePost,showToast}) {
   async function handleOptimize() {
     if (!post) return;
     setLoading(true);
-    try { const desc=selAxes.map(id=>{const a=OPTIM_AXES.find(x=>x.id===id);return a?`- ${a.label} : ${a.desc}`:""}).filter(Boolean).join("\n"); const instr=[desc,freeInst.trim()].filter(Boolean).join("\n\nInstruction libre :\n")||"Améliore globalement."; const txt=await callClaude(`Optimise :\n${instr}\n\nPost :\n${post}`,LINKEDIN_RULES); setOptimPost(txt); }
-    catch(e) { showToast("⚠️ "+e.message); }
+    try {
+      const desc=selAxes.map(id=>{const a=OPTIM_AXES.find(x=>x.id===id);return a?`- ${a.label} : ${a.desc}`:""}).filter(Boolean).join("\n");
+      const instr=[desc,freeInst.trim()].filter(Boolean).join("\n\nInstruction libre :\n")||"Améliore globalement.";
+      const txt=await callClaude(`Optimise :\n${instr}\n\nPost :\n${post}`,LINKEDIN_RULES);
+      setOptimPost(txt);
+    } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
   return (
@@ -845,7 +731,7 @@ function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}}>
       <div style={{height:40,background:"#fff",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"stretch",padding:"0 1.25rem",flexShrink:0}}>
-        {TABS.map(tab=>{const isOn=activeTab===tab.id;return <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:`2px solid ${isOn?C.navy:"transparent"}`,background:"none",border:"none",borderBottom:`2px solid ${isOn?C.navy:"transparent"}`,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;})}
+        {TABS.map(tab=>{const isOn=activeTab===tab.id;return <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:`2px solid ${isOn?C.navy:"transparent"}`,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;})}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
         <div style={{maxWidth:900,margin:"0 auto"}}>
@@ -873,23 +759,25 @@ function MesPostsTab({posts,onDelete}) {
         <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
           {["all",...axes].map(a=><button key={a} onClick={()=>setFilter(a)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?`0.5px solid ${C.navyMid}`:`0.5px solid ${C.gray200}`,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>)}
         </div>
-        {filtered.length===0?<Empty icon="📝" text="Aucun post sauvegardé."/>
-        :<div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
-          {filtered.map(p=><div key={p.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,padding:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {p.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{p.axis}</span>}
-                {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}{p.style?` · ${p.style}`:""}</span>}
+        {filtered.length===0
+          ?<Empty icon="📝" text="Aucun post sauvegardé."/>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+            {filtered.map(p=><div key={p.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,padding:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {p.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{p.axis}</span>}
+                  {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}{p.style?` · ${p.style}`:""}</span>}
+                </div>
+                <span style={{fontSize:11,color:C.gray400,flexShrink:0}}>{p.date}</span>
               </div>
-              <span style={{fontSize:11,color:C.gray400,flexShrink:0}}>{p.date}</span>
-            </div>
-            <p style={{fontSize:13,color:C.gray900,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 50%, transparent)",marginBottom:10}}>{p.content}</p>
-            <div style={{display:"flex",gap:10,borderTop:`0.5px solid ${C.gray200}`,paddingTop:8}}>
-              <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-              <button onClick={()=>onDelete(p.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
-            </div>
-          </div>)}
-        </div>}
+              <p style={{fontSize:13,color:C.gray900,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 50%, transparent)",marginBottom:10}}>{p.content}</p>
+              <div style={{display:"flex",gap:10,borderTop:`0.5px solid ${C.gray200}`,paddingTop:8}}>
+                <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+                <button onClick={()=>onDelete(p.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
+              </div>
+            </div>)}
+          </div>
+        }
       </div>
     </div>
   );
@@ -901,10 +789,9 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
   const [metrics,  setMetrics]  = useState({impressions:"",likes:"",comments:""});
   const [improved, setImproved] = useState("");
   const [loading,  setLoading]  = useState(false);
-  const engRate  = metrics.impressions?(((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1):null;
-  const avgImp   = insights.length?Math.round(insights.reduce((s,i)=>s+(+i.impressions||0),0)/insights.length):null;
-  const avgEng   = insights.length?(insights.reduce((s,i)=>{const e=i.impressions?((+i.likes||0)+(+i.comments||0))/+i.impressions*100:0;return s+e;},0)/insights.length).toFixed(1):null;
-
+  const engRate = metrics.impressions?(((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1):null;
+  const avgImp  = insights.length?Math.round(insights.reduce((s,i)=>s+(+i.impressions||0),0)/insights.length):null;
+  const avgEng  = insights.length?(insights.reduce((s,i)=>{const e=i.impressions?((+i.likes||0)+(+i.comments||0))/+i.impressions*100:0;return s+e;},0)/insights.length).toFixed(1):null;
   async function handleAnalyze() {
     if (!selPost.trim()) return;
     setLoading(true);
@@ -917,7 +804,6 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"calc(100vh - 56px)"}}>
       <div style={{padding:"1.5rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
@@ -971,19 +857,21 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
       <div style={{padding:"1.5rem",background:C.gray50,overflowY:"auto"}}>
         <p style={{fontSize:14,fontWeight:500,color:C.gray900,marginBottom:12}}>Historique des analyses</p>
         {insights.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>
-          {[{l:"Moy. impressions",v:avgImp?.toLocaleString("fr-FR")||"—"},{l:"Moy. engagement",v:avgEng?`${avgEng}%`:"—",green:true},{l:"Posts analysés",v:insights.length}].map(({l,v,green})=><div key={l} style={{flex:1,background:"#fff",borderRadius:8,padding:10,textAlign:"center"}}><p style={{fontSize:10,color:C.gray400,marginBottom:4}}>{l}</p><p style={{fontSize:20,fontWeight:500,color:green?C.green:C.gray900}}>{v}</p></div>)}
+          {[{l:"Moy. impressions",v:avgImp?.toLocaleString("fr-FR")||"—"},{l:"Moy. engagement",v:avgEng?`${avgEng}%`:"—",g:true},{l:"Posts analysés",v:insights.length}].map(({l,v,g})=><div key={l} style={{flex:1,background:"#fff",borderRadius:8,padding:10,textAlign:"center"}}><p style={{fontSize:10,color:C.gray400,marginBottom:4}}>{l}</p><p style={{fontSize:20,fontWeight:500,color:g?C.green:C.gray900}}>{v}</p></div>)}
         </div>}
-        {insights.length===0?<Empty icon="📈" text="Aucune analyse enregistrée."/>
-        :insights.map(ins=>{
-          const eng=ins.impressions?(((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1):null;
-          return <div key={ins.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden",marginBottom:8}}>
-            <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><button onClick={()=>onDeleteInsight(ins.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Suppr.</button></div>
-            <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
-            <div style={{padding:"8px 12px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-              {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?`${eng}%`:"—",green:true}].map(({l,v,green})=><div key={l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{l}</p><p style={{fontSize:13,fontWeight:500,color:green?C.green:C.gray900}}>{v||"—"}</p></div>)}
-            </div>
-          </div>;
-        })}
+        {insights.length===0
+          ?<Empty icon="📈" text="Aucune analyse enregistrée."/>
+          :insights.map(ins=>{
+            const eng=ins.impressions?(((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1):null;
+            return <div key={ins.id} style={{background:"#fff",border:`0.5px solid ${C.gray200}`,borderRadius:10,overflow:"hidden",marginBottom:8}}>
+              <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><button onClick={()=>onDeleteInsight(ins.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Suppr.</button></div>
+              <div style={{padding:"8px 12px",borderBottom:`0.5px solid ${C.gray200}`}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
+              <div style={{padding:"8px 12px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?`${eng}%`:"—",g:true}].map(({l,v,g})=><div key={l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{l}</p><p style={{fontSize:13,fontWeight:500,color:g?C.green:C.gray900}}>{v||"—"}</p></div>)}
+              </div>
+            </div>;
+          })
+        }
       </div>
     </div>
   );
@@ -993,7 +881,7 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
 function AppShell() {
   const [toastMsg, setToastMsg] = useState("");
   const toastTimer = useRef(null);
-  function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current = setTimeout(()=>setToastMsg(""), 2800); }
+  function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current=setTimeout(()=>setToastMsg(""),2800); }
 
   const [activeTab,    setActiveTab]    = useState("profil");
   const [profile,      setProfile]      = useState(()=>store.get(SK.PROFILE));
@@ -1039,7 +927,7 @@ function AppShell() {
       <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
       <main style={{flex:1,overflow:"hidden"}}>
         {activeTab==="profil"   && <ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
+        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
         {activeTab==="roadmap"  && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
         {activeTab==="creer"    && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
         {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
