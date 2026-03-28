@@ -459,37 +459,27 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
     if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
     setLoading(true); showToast("⏳ Génération en cours…");
     try {
-  const txt = await callClaude(
-    `Tu es un expert en stratégie de contenu LinkedIn.
-Profil : ${profile?.name||""} — ${profile?.vision||""}
-Axes disponibles : ${JSON.stringify(selectedAxes.map(a=>a.title))}
-Durée : ${dur} mois soit ${dur*4} semaines.
-
-Génère une roadmap LinkedIn en JSON. Chaque semaine doit avoir :
-- week : numéro de 1 à ${dur*4}
-- month : "Mois 1" à "Mois ${dur}"
-- theme : titre accrocheur du post
-- detail : angle en 1 phrase
-- axis : un des axes fournis (exact)
-- tone : un parmi Inspirant, Éducatif, Provocateur, Authentique, Expert
-- style : un parmi Storytelling, Liste / Tips, Opinion tranchée, Étude de cas, Question ouverte
-- hook : première ligne d'accroche
-
-Réponds UNIQUEMENT avec le JSON, sans texte avant ou après.`,
-    `{"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."},...]}`,
-    4000
-  );
-
-  // Parsing robuste
+  const axes = JSON.stringify(selectedAxes.map(a=>a.title));
+  const prompt = "Tu es un expert en stratégie de contenu LinkedIn.\n"
+    + "Profil : " + (profile?.name||"") + " — " + (profile?.vision||"") + "\n"
+    + "Axes disponibles : " + axes + "\n"
+    + "Duree : " + dur + " mois soit " + (dur*4) + " semaines.\n"
+    + "Génère une roadmap LinkedIn en JSON. Chaque semaine doit avoir :\n"
+    + "- week : numéro de 1 à " + (dur*4) + "\n"
+    + "- month : Mois 1 à Mois " + dur + "\n"
+    + "- theme : titre accrocheur du post\n"
+    + "- detail : angle en 1 phrase\n"
+    + "- axis : un des axes fournis (exact)\n"
+    + "- tone : un parmi Inspirant, Éducatif, Provocateur, Authentique, Expert\n"
+    + "- style : un parmi Storytelling, Liste / Tips, Opinion tranchée, Étude de cas, Question ouverte\n"
+    + "- hook : première ligne d'accroche\n"
+    + "Réponds UNIQUEMENT avec le JSON, sans texte avant ou après.";
+  const sys = '{"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}';
+  const txt = await callClaude(prompt, sys, 4000);
   let parsed = parseJSON(txt);
-  
-  // Si le JSON est dans une propriété "weeks" directement
-  if (parsed && !parsed.weeks && Array.isArray(parsed)) {
-    parsed = { weeks: parsed };
-  }
-
+  if (parsed && !parsed.weeks && Array.isArray(parsed)) parsed = {weeks:parsed};
   if (parsed?.weeks?.length) {
-    onRoadmapGenerated({id:uid(),name:`Roadmap ${dur}m — ${toDay()}`,createdAt:toDay(),weeks:parsed.weeks,dur});
+    onRoadmapGenerated({id:uid(),name:"Roadmap "+dur+"m — "+toDay(),createdAt:toDay(),weeks:parsed.weeks,dur});
   } else {
     console.log("Réponse brute :", txt);
     showToast("⚠️ Format inattendu — voir console");
