@@ -187,7 +187,7 @@ function LoginPage() {
             </div>
           ))}
         </div>
-        <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Réservé aux collaborateurs {ALLOWED_DOMAIN}</p>
+        <p style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Réservé aux collaborateurs {ALLOWED_DOMAINS.join(" / ")}</p>
       </div>
       <div style={{background:"#fff",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"2.5rem"}}>
         <p style={{fontSize:22,fontWeight:500,color:C.gray900,marginBottom:6}}>Connexion</p>
@@ -197,7 +197,7 @@ function LoginPage() {
           Continuer avec Google
         </button>
         {error&&<div style={{marginTop:16,width:"100%",maxWidth:300,padding:"10px 14px",background:"#FEF2F2",border:"0.5px solid #FCA5A5",borderRadius:8,fontSize:13,color:"#B91C1C",textAlign:"center"}}>{error}</div>}
-        <p style={{marginTop:24,fontSize:12,color:C.gray200,textAlign:"center"}}>Seuls les comptes {ALLOWED_DOMAIN} sont autorisés</p>
+        <p style={{marginTop:24,fontSize:12,color:C.gray200,textAlign:"center"}}>Seuls les comptes {ALLOWED_DOMAINS.join(" / ")} sont autorisés</p>
       </div>
     </div>
   );
