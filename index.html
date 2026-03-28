@@ -240,19 +240,24 @@ function NavBar({activeTab,onTabChange,postCount,insightCount}) {
 }
 
 // ─── PROFIL TAB ────────────────────────────────────────────────────
-function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
+function ProfilTab({profile,onSave,showToast,onAxesGenerated,onGoAxes}) {
   const [name,    setName]    = useState(profile?.name||"");
   const [vision,  setVision]  = useState(profile?.vision||"");
   const [context, setContext] = useState(profile?.context||"");
   const [loading, setLoading] = useState(false);
   useEffect(()=>{setName(profile?.name||"");setVision(profile?.vision||"");setContext(profile?.context||"");},[profile]);
   const isValid = name.trim()&&vision.trim()&&context.trim();
+
   async function handleGenAxes() {
     if (!isValid) return;
     onSave({name,vision,context});
     setLoading(true);
     try {
-      const txt = await callClaude(`Nom : ${name}\nVision : ${vision}\nContexte : ${context}\nGénère 6 axes de contenu LinkedIn stratégiques en français.`,`Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.`,900);
+      const txt = await callClaude(
+        `Nom : ${name}\nVision : ${vision}\nContexte : ${context}\nGénère 6 axes de contenu LinkedIn stratégiques en français.`,
+        `Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.`,
+        900
+      );
       const parsed = parseJSON(txt);
       if (parsed?.axes?.length) {
         onAxesGenerated({id:uid(),label:`Génération — ${toDay()}`,createdAt:toDay(),axes:parsed.axes.map(a=>({...a,id:uid()}))});
@@ -260,6 +265,7 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
+
   return (
     <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
       <div style={{padding:"2rem",background:"#fff",borderRight:`0.5px solid ${C.gray200}`,display:"flex",flexDirection:"column",overflowY:"auto"}}>
@@ -269,7 +275,10 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
         <Field label="Nom ou marque" value={name} onChange={setName} placeholder="Ex : Nicolas Dupont"/>
         <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={3}/>
         <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants" rows={3}/>
-        
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
+          <Btn onClick={()=>{if(isValid)onSave({name,vision,context});}} disabled={!isValid}>Sauvegarder</Btn>
+          <Btn variant="secondary" onClick={handleGenAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
+        </div>
       </div>
       <div style={{padding:"2rem",background:C.gray50,display:"flex",flexDirection:"column",gap:12,overflowY:"auto"}}>
         <p style={{fontSize:11,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:"0.06em"}}>Comment ça marche</p>
@@ -299,7 +308,7 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
   const usedIds = new Set(selectedAxes.map(a=>a.id));
   const favIds  = new Set(favAxes);
 
-  // Dédoublonnage par titre
+  // Dédoublonnage par titre — garde le plus récent
   const seen = new Set();
   const uniqueAxes = allAxes.filter(a=>{
     if (seen.has(a.title)) return false;
@@ -314,20 +323,21 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
     return true;
   });
 
-  async function regen(count, existing) {
+  async function regen(count, toKeep) {
     if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
     setLoading(true);
     try {
       const txt = await callClaude(
-        `Profil : ${profile.name} — ${profile.vision}\nAxes existants à ne pas reproduire : ${JSON.stringify(existing.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,
+        `Profil : ${profile.name} — ${profile.vision}\nAxes existants à ne pas reproduire : ${JSON.stringify(toKeep.map(a=>a.title))}\nGénère ${count} nouveaux axes LinkedIn différents en français.`,
         `Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`,
         700
       );
       const parsed = parseJSON(txt);
       if (parsed?.axes?.length) {
-        const withIds  = parsed.axes.map(a=>({...a,id:uid()}));
-        const kept     = uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id));
-        const newAxes  = count===6 ? withIds : [...kept,...withIds];
+        const withIds = parsed.axes.map(a=>({...a,id:uid()}));
+        // Pour "regénérer 6 nouveaux" : on remplace tout
+        // Pour "remplacer X axes" : on garde toKeep + nouveaux
+        const newAxes = count===6 ? withIds : [...toKeep,...withIds];
         onAxesGenerated({id:uid(),label:`Regénération — ${toDay()}`,createdAt:toDay(),axes:newAxes});
         setMarked([]); setMode("select");
         showToast(`✓ ${parsed.axes.length} axe(s) générés`);
@@ -339,6 +349,8 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
   return (
     <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
       <div style={{maxWidth:760,margin:"0 auto"}}>
+
+        {/* Toolbar */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
           <div style={{display:"flex",gap:4}}>
             {[{k:"all",l:`Tous (${uniqueAxes.length})`},{k:"fav",l:"Favoris"},{k:"used",l:"Sélectionnés"},{k:"new",l:"Nouveaux"}].map(({k,l})=>(
@@ -346,22 +358,33 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
             ))}
           </div>
           <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            <button onClick={()=>{setMode(m=>m==="replace"?"select":"replace");setMarked([]);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:`0.5px solid ${mode==="replace"?C.amber:C.gray200}`,fontFamily:"inherit"}}>
+            <button
+              onClick={()=>{setMode(m=>m==="replace"?"select":"replace");setMarked([]);}}
+              style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:mode==="replace"?"#FEF3C7":C.gray100,color:mode==="replace"?"#92400E":C.gray600,border:`0.5px solid ${mode==="replace"?C.amber:C.gray200}`,fontFamily:"inherit"}}
+            >
               {mode==="replace"?"✕ Annuler":"↺ Remplacer des axes"}
             </button>
-            <Btn sm variant="secondary" onClick={()=>regen(6,uniqueAxes)} disabled={loading}>{loading?"…":"↺ Regénérer 6 nouveaux"}</Btn>
+            <Btn sm variant="secondary" onClick={()=>regen(6,[])} disabled={loading}>
+              {loading?"…":"↺ Regénérer 6 nouveaux"}
+            </Btn>
           </div>
         </div>
 
+        {/* Bandeau remplacement */}
         {mode==="replace"&&marked.length>0&&(
           <div style={{background:"#FEF3C7",border:`0.5px solid ${C.amber}`,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) à remplacer</span>
-            <Btn sm variant="secondary" onClick={()=>regen(marked.length,uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))} disabled={loading} style={{marginLeft:"auto"}}>
-              {loading?"…":`↺ Remplacer ${marked.length}`}
+            <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) sélectionné(s) à remplacer</span>
+            <Btn sm variant="secondary"
+              onClick={()=>regen(marked.length, uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))}
+              disabled={loading}
+              style={{marginLeft:"auto"}}
+            >
+              {loading?"…":`↺ Remplacer ${marked.length} axe(s)`}
             </Btn>
           </div>
         )}
 
+        {/* Grille */}
         {filteredAxes.length===0
           ? <Empty icon="🎯" text="Aucun axe trouvé."/>
           : <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}}>
@@ -370,7 +393,8 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
                 return (
                   <div key={a.id}
                     onClick={()=>mode==="replace"?setMarked(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a]):onToggleAxis(a)}
-                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer"}}>
+                    style={{border:`0.5px solid ${isMk?C.amber:isSel?C.navy:isFav?C.amber:C.gray200}`,borderRadius:9,padding:11,background:isMk?"#FFFBEB":isSel?C.navyLight:"#fff",cursor:"pointer",position:"relative"}}
+                  >
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
                       <span style={{fontSize:15}}>{a.emoji}</span>
                       <div style={{display:"flex",gap:4,alignItems:"center"}}>
@@ -380,8 +404,15 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
                         {isSel&&mode!=="replace"&&(
                           <div style={{width:15,height:15,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center"}}>✓</div>
                         )}
-                        {isMk&&mode==="replace"&&(
+                        {isMk&&(
                           <span style={{fontSize:10,background:C.amber,color:"#fff",borderRadius:4,padding:"1px 5px"}}>↺</span>
+                        )}
+                        {mode!=="replace"&&(
+                          <button
+                            onClick={e=>{e.stopPropagation();onDeleteAxis(a.id);}}
+                            style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer",padding:"0 2px",lineHeight:1,fontFamily:"inherit"}}
+                            title="Supprimer"
+                          >✕</button>
                         )}
                       </div>
                     </div>
@@ -396,14 +427,15 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
             </div>
         }
 
+        {/* Boutons d'action */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16}}>
-  {selectedAxes.length>0&&mode==="select"&&(
-    <>
-      <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
-      <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
-    </>
-  )}
-</div>
+          {selectedAxes.length>0&&mode==="select"&&(
+            <>
+              <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
+              <Btn variant="secondary" onClick={onGoCreer}>→ Créer un post directement</Btn>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -429,7 +461,9 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
     try {
       const txt = await callClaude(
         `Profil : ${profile?.name||""} — ${profile?.vision||""}\nAxes : ${JSON.stringify(selectedAxes.map(a=>a.title))}\nGénère une roadmap LinkedIn de ${dur} mois (${dur*4} semaines) en français. Pour chaque semaine : week, month, theme, detail, axis, tone, style, hook.`,
-        `Réponds UNIQUEMENT en JSON valide. Format : {"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}`,2000);
+        `Réponds UNIQUEMENT en JSON valide. Format : {"weeks":[{"week":1,"month":"Mois 1","theme":"...","detail":"...","axis":"...","tone":"...","style":"...","hook":"..."}]}`,
+        2000
+      );
       const parsed = parseJSON(txt);
       if (parsed?.weeks?.length) {
         onRoadmapGenerated({id:uid(),name:`Roadmap ${dur}m — ${toDay()}`,createdAt:toDay(),weeks:parsed.weeks,dur});
@@ -445,12 +479,16 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
         </button>
         {roadmaps.map((rm,i)=>(
           <div key={rm.id} onClick={()=>onSetActive(rm.id)} style={{borderRadius:6,border:`0.5px solid ${rm.id===activeRmId?C.navy:C.gray200}`,background:rm.id===activeRmId?C.navyLight:"#fff",cursor:"pointer",display:"flex",alignItems:"center",...(sidebarOpen?{padding:"8px 10px",margin:"0 8px",gap:8}:{width:28,height:28,justifyContent:"center",margin:"0 auto"})}}>
-            {sidebarOpen?<><div style={{flex:1,minWidth:0}}><p style={{fontSize:12,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rm.name}</p><p style={{fontSize:10,color:C.gray400}}>{rm.weeks?.length||0} sem.</p></div><button onClick={e=>{e.stopPropagation();onDeleteRoadmap(rm.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer"}}>✕</button></>
-            :<span style={{fontSize:9,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray600}}>R{i+1}</span>}
+            {sidebarOpen
+              ?<><div style={{flex:1,minWidth:0}}><p style={{fontSize:12,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray900,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rm.name}</p><p style={{fontSize:10,color:C.gray400}}>{rm.weeks?.length||0} sem.</p></div><button onClick={e=>{e.stopPropagation();onDeleteRoadmap(rm.id);}} style={{fontSize:11,color:C.gray400,background:"none",border:"none",cursor:"pointer"}}>✕</button></>
+              :<span style={{fontSize:9,fontWeight:500,color:rm.id===activeRmId?C.navy:C.gray600}}>R{i+1}</span>
+            }
           </div>
         ))}
-        {sidebarOpen?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>
-        :<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:`0.5px dashed ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>}
+        {sidebarOpen
+          ?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>
+          :<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:`0.5px dashed ${C.gray200}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>
+        }
       </div>
       <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{height:48,background:C.gray50,borderBottom:`0.5px solid ${C.gray200}`,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
@@ -920,17 +958,19 @@ function AppShell() {
     return rm;
   }
 
+  function handleDeleteAxis(id) {
+    saveAxesSessions(p=>p.map(s=>({...s,axes:s.axes.filter(a=>a.id!==id)})).filter(s=>s.axes.length>0));
+    saveSelectedAxes(p=>p.filter(a=>a.id!==id));
+    saveFavAxes(p=>p.filter(x=>x!==id));
+  }
+
   return (
     <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <Toast message={toastMsg}/>
       <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
       <main style={{flex:1,overflow:"hidden"}}>
         {activeTab==="profil"   && <ProfilTab profile={profile} onSave={p=>{saveProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={id=>{
-  saveAxesSessions(p=>p.map(s=>({...s,axes:s.axes.filter(a=>a.id!==id)})).filter(s=>s.axes.length>0));
-  saveSelectedAxes(p=>p.filter(a=>a.id!==id));
-  saveFavAxes(p=>p.filter(x=>x!==id));
-}} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
+        {activeTab==="axes"     && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>saveSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>saveFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{saveAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}} onGoCreer={()=>setActiveTab("creer")}/>}
         {activeTab==="roadmap"  && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={saveActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())saveRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>saveRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)saveActiveRmId(nx[0]?.id||null);return nx;})} onRoadmapGenerated={rm=>{saveRoadmaps(p=>[...p,rm]);saveActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
         {activeTab==="creer"    && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>savePosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
         {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>savePosts(p=>p.filter(x=>x.id!==id))}/>}
