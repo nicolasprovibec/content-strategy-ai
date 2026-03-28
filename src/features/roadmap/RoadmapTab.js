@@ -309,3 +309,4 @@ Répartis les axes équitablement. Pour chaque semaine : week(1-${dur * 4}), mon
     </div>
   );
 }
+window.RoadmapTab = RoadmapTab;
