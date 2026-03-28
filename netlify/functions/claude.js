@@ -11,7 +11,7 @@ exports.handler = async function(event) {
         "x-api-key": key,
         "anthropic-version": "2023-06-01"
       },
-      body: event.body
+      body: event.body.replace('"claude-sonnet-4-20250514"', '"claude-haiku-3-5-20241022"')
     });
     const data = await res.json();
     console.log("STATUS:", res.status);
