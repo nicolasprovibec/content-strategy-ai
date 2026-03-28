@@ -87,3 +87,5 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth doit être utilisé dans un AuthProvider.");
   return ctx;
 }
+window.AuthProvider = AuthProvider;
+window.useAuth = useAuth;
