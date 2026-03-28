@@ -205,3 +205,4 @@ export function AppShell() {
     </div>
   );
 }
+window.AppShell = AppShell;
