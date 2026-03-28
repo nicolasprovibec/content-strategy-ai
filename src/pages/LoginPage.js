@@ -172,3 +172,4 @@ export function LoginPage() {
     </div>
   );
 }
+window.LoginPage = LoginPage;
