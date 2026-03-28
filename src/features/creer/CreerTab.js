@@ -483,3 +483,4 @@ export function CreerTab({ profile, selectedAxes, prefill, onSavePost, showToast
     </div>
   );
 }
+window.CreerTab = CreerTab;
