@@ -728,11 +728,24 @@ function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToas
   async function handleAnalyze() {
     if (!analyserPost) return;
     setLoading(true); setAnalysis(null);
-    try {
-      const sys='Expert LinkedIn. Réponds UNIQUEMENT en JSON valide sans aucun texte avant ou après. Format exact : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}';
-      const p=parseJSON(await callClaude("Analyse ce post LinkedIn :\n\n"+analyserPost,sys,800));
-      if (p?.score!==undefined) setAnalysis(p); else showToast("⚠️ Format inattendu");
-    } catch(e) { showToast("⚠️ "+e.message); }
+    let attempts = 0;
+    while (attempts < 3) {
+      try {
+        const sys = 'Tu es un expert LinkedIn. Tu DOIS répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après, sans balises markdown, sans explication. Réponds SEULEMENT avec ce JSON : {"score":7,"hook":{"note":6,"comment":"commentaire"},"structure":{"note":7,"comment":"commentaire"},"ton":{"note":8,"comment":"commentaire"},"longueur":{"note":5,"comment":"commentaire"},"points_forts":["point 1","point 2"],"points_faibles":["point 1"],"recommandations":["reco 1","reco 2"]}';
+        const userMsg = 'Analyse ce post LinkedIn et retourne UNIQUEMENT le JSON demandé :\n\n' + analyserPost;
+        const txt = await callClaude(userMsg, sys, 1200);
+        const p = parseJSON(txt);
+        if (p?.score !== undefined) {
+          setAnalysis(p);
+          setLoading(false);
+          return;
+        }
+      } catch(e) {
+        if (attempts === 2) { showToast("⚠️ " + e.message); }
+      }
+      attempts++;
+    }
+    showToast("⚠️ Analyse échouée après 3 tentatives, réessayez");
     setLoading(false);
   }
 
@@ -778,8 +791,10 @@ function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToas
             </div>}
           </div>
           <div style={{padding:"12px 16px",borderTop:"2px solid "+C.navy,background:"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 -4px 12px rgba(30,58,95,0.08)"}}>
-            <span style={{fontSize:12,color:C.gray600}}>Prêt à améliorer ce post ?</span>
-            <Btn onClick={()=>onGoOptimiser(analyserPost)}>→ Optimiser ce post</Btn>
+            <div style={{display:"flex",gap:8}}>
+              <Btn variant="secondary" onClick={()=>{onSavePost({content:analyserPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}}>💾 Sauver ce post</Btn>
+              <Btn onClick={()=>onGoOptimiser(analyserPost)}>→ Optimiser ce post</Btn>
+            </div>
           </div>
         </React.Fragment>
       }
@@ -805,7 +820,7 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
     setLoading(false);
   }
 
-  return <div style={{display:"grid",gridTemplateColumns:"300px 1fr",height:"100%",overflow:"hidden"}}>
+  return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"100%",overflow:"hidden"}}>
     {/* Colonne gauche : axes + post à optimiser */}
     <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{flex:1,overflowY:"auto",padding:"1.25rem",display:"flex",flexDirection:"column",gap:14}}>
@@ -868,7 +883,7 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
         <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,maxWidth:480,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
             <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>N</div>
-            <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>Nicolas Girodet</p><p style={{fontSize:11,color:C.gray400}}>CEO · Margo Group · À l'instant · 🌐</p></div>
+            <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>Nicolas Girodet</p><p style={{fontSize:11,color:C.gray400}}>Co-Founder · Code Busters · À l'instant · 🌐</p></div>
           </div>
           <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,marginBottom:10}}>{optimPost.slice(0,180)}{optimPost.length>180&&<span style={{color:C.gray400}}>… voir plus</span>}</p>
           <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:8,display:"flex",gap:20}}>
@@ -1044,7 +1059,9 @@ function AppShell() {
   // Chargement des données depuis Netlify Blobs au login
   useEffect(()=>{
     if (!auth.user || dataLoaded) return;
+    const timeout = setTimeout(()=>{ setDataLoaded(true); }, 6000); // failsafe 6s
     loadUserData().then(data=>{
+      clearTimeout(timeout);
       if (data && Object.keys(data).length>0) {
         if (data.profile)      setProfile(data.profile);
         if (data.axesSessions) setAxesSessions(data.axesSessions);
@@ -1058,7 +1075,7 @@ function AppShell() {
         showToast("✓ Données chargées");
       }
       setDataLoaded(true);
-    });
+    }).catch(()=>{ clearTimeout(timeout); setDataLoaded(true); });
   },[auth.user]);
 
   // Sauvegarde auto debounced (500ms après chaque changement)
