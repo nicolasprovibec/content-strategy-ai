@@ -18,17 +18,15 @@
 <body>
 <div id="root"></div>
 <script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
-<script>
-  netlifyIdentity.init({ logo: false });
-  if (window.location.hash && window.location.hash.includes('recovery_token')) {
-    netlifyIdentity.open();
-  }
-</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
+var netlifyIdentity = window.netlifyIdentity;
+
+// ─── Init Netlify Identity ici, dans le bloc Babel ────────────────
+netlifyIdentity.init({ logo: false });
 
 const ALLOWED_DOMAINS = ["@margoconseil.com", "@codebusters.fr", "@margo-group.com", "@margo.com"];
 const LINKEDIN_RULES = "Tu es un expert copywriting LinkedIn. Règles absolues :\n- 800 à 1500 caractères, jamais de blocs denses\n- Hook fort sur les 2 premières lignes (court, clivant, zéro jargon)\n- 1 idée par ligne, sauts de ligne fréquents\n- Ton direct, conversationnel, position assumée\n- Pas de hashtags dans le corps, max 3 à la toute fin\nRéponds uniquement avec le texte du post, sans commentaire.";
@@ -170,21 +168,52 @@ function ScoreBar(props) {
   );
 }
 
+// ─── AUTH ─────────────────────────────────────────────────────────
 var AuthContext = React.createContext(null);
 function AuthProvider(props) {
   var _s1 = useState(null); var user = _s1[0]; var setUser = _s1[1];
   var _s2 = useState(true); var loading = _s2[0]; var setLoading = _s2[1];
   var _s3 = useState(null); var error = _s3[0]; var setError = _s3[1];
+
   function isAllowed(u) { return ALLOWED_DOMAINS.some(function(d){return u && u.email && u.email.endsWith(d);}); }
   function logout() { netlifyIdentity.logout(); store.clear(); setUser(null); }
+
   useEffect(function(){
+    // Événement "init" : déclenché après que le widget a traité le hash de l'URL
+    // (y compris recovery_token, invite_token, etc.)
+    // C'est le seul endroit fiable pour récupérer l'utilisateur après un lien e-mail.
+    netlifyIdentity.on("init", function(u) {
+      if (u) {
+        if (isAllowed(u)) { setUser(u); setError(null); }
+        else { netlifyIdentity.logout(); setError("Domaine non autorisé."); }
+      }
+      setLoading(false);
+    });
+
+    netlifyIdentity.on("login", function(u) {
+      netlifyIdentity.close();
+      if (isAllowed(u)) { setUser(u); setError(null); }
+      else { netlifyIdentity.logout(); setError("Accès réservé aux adresses : " + ALLOWED_DOMAINS.join(", ")); }
+      setLoading(false);
+    });
+
+    netlifyIdentity.on("logout", function() { setUser(null); });
+
+    // Fallback : si "init" n'est jamais déclenché (widget déjà initialisé)
     var cur = netlifyIdentity.currentUser();
-    if (cur) { if(isAllowed(cur)){setUser(cur);}else{netlifyIdentity.logout();setError("Domaine non autorisé.");} }
-    setLoading(false);
-    netlifyIdentity.on("login", function(u){ netlifyIdentity.close(); if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Accès réservé aux adresses : "+ALLOWED_DOMAINS.join(", "));} });
-    netlifyIdentity.on("logout", function(){ setUser(null); });
-    return function(){ netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
+    if (cur) {
+      if (isAllowed(cur)) { setUser(cur); }
+      else { netlifyIdentity.logout(); setError("Domaine non autorisé."); }
+      setLoading(false);
+    }
+
+    return function(){
+      netlifyIdentity.off("init");
+      netlifyIdentity.off("login");
+      netlifyIdentity.off("logout");
+    };
   },[]);
+
   return <AuthContext.Provider value={{user:user,loading:loading,error:error,logout:logout}}>{props.children}</AuthContext.Provider>;
 }
 function useAuth() { return React.useContext(AuthContext); }
@@ -284,8 +313,8 @@ function ProfilTab(props) {
         <p style={{fontSize:18,fontWeight:500,color:C.gray900,marginBottom:4}}>Votre profil</p>
         <p style={{fontSize:12,color:C.gray400,marginBottom:24,lineHeight:1.5}}>Ces informations personnalisent tous les contenus générés.</p>
         <Field label="Nom ou marque" value={name} onChange={setName} placeholder="Ex : Nicolas Dupont"/>
-        <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={3}/>
-        <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants" rows={3}/>
+        <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={4}/>
+        <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants" rows={5}/>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
           <Btn onClick={function(){if(isValid)props.onSave({name:name,vision:vision,context:context});}} disabled={!isValid}>Sauvegarder</Btn>
           <Btn variant="secondary" onClick={handleGenAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
@@ -425,14 +454,13 @@ function RoadmapTab(props) {
     try {
       var axesTitles = JSON.stringify(props.selectedAxes.map(function(a){return a.title;}));
       var nbWeeks = dur * 4;
-     var prompt = "Profil : " + (props.profile&&props.profile.name?props.profile.name:"") + " — " + (props.profile&&props.profile.vision?props.profile.vision:"") + "\n"
-  + "Axes : " + axesTitles + "\n"
-  + "Génère une roadmap LinkedIn de " + dur + " mois (" + nbWeeks + " semaines).\n"
-  + "IMPORTANT : sois très concis, max 5 mots par champ.\n"
-  + "Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.";
-     var sys = "{\"weeks\":[{\"week\":1,\"month\":\"Mois 1\",\"theme\":\"Titre court\",\"detail\":\"Une phrase\",\"axis\":\"Axe exact\",\"tone\":\"Inspirant\",\"style\":\"Storytelling\",\"hook\":\"Accroche\"}]}";
+      var prompt = "Profil : " + (props.profile&&props.profile.name?props.profile.name:"") + " — " + (props.profile&&props.profile.vision?props.profile.vision:"") + "\n"
+        + "Axes : " + axesTitles + "\n"
+        + "Génère une roadmap LinkedIn de " + dur + " mois (" + nbWeeks + " semaines).\n"
+        + "IMPORTANT : sois très concis, max 5 mots par champ.\n"
+        + "Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.";
+      var sys = "{\"weeks\":[{\"week\":1,\"month\":\"Mois 1\",\"theme\":\"Titre court\",\"detail\":\"Une phrase\",\"axis\":\"Axe exact\",\"tone\":\"Inspirant\",\"style\":\"Storytelling\",\"hook\":\"Accroche\"}]}";
       var txt = await callClaude(prompt, sys, 2500);
-      console.log("Réponse roadmap :", txt.substring(0,200));
       var parsed = parseJSON(txt);
       if (parsed && !parsed.weeks && Array.isArray(parsed)) parsed = {weeks:parsed};
       if (parsed && parsed.weeks && parsed.weeks.length) {
@@ -518,29 +546,19 @@ function RoadmapTab(props) {
   );
 }
 
-// ─── PROFIL : correction taille des champs ─────────────────────────
-// Dans ProfilTab, remplace :
-//   <Field label="Vision" ... rows={3}/>   → rows={4}
-//   <Field label="Contexte" ... rows={3}/> → rows={5}
-
-// ─── CRÉER : GenererTab ────────────────────────────────────────────
 function GenererTab(props) {
   var prefill = props.prefill;
   var _a = useState(prefill&&prefill.axis ? prefill.axis : (props.selectedAxes[0]||null)); var axis=_a[0]; var setAxis=_a[1];
   var _t = useState(prefill&&prefill.tone ? prefill.tone : ""); var tone=_t[0]; var setTone=_t[1];
   var _s = useState(prefill&&prefill.style ? prefill.style : ""); var style=_s[0]; var setStyle=_s[1];
   var _l = useState(false); var loading=_l[0]; var setLoading=_l[1];
-
-  // Le post est géré par le parent (CreerTab) pour persister entre onglets
   var post = props.post;
   var setPost = props.setPost;
-
   useEffect(function(){
     if(prefill&&prefill.axis)  setAxis(prefill.axis);
     if(prefill&&prefill.tone)  setTone(prefill.tone);
     if(prefill&&prefill.style) setStyle(prefill.style);
   },[prefill]);
-
   async function handleGen() {
     if (!axis||!tone||!style||!props.profile) return;
     setLoading(true);
@@ -552,7 +570,6 @@ function GenererTab(props) {
     } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
@@ -570,7 +587,6 @@ function GenererTab(props) {
         <div style={{marginBottom:16}}>{STYLES.map(function(s){return <Tag key={s} label={s} active={style===s} onClick={function(){setStyle(s);}}/>;})}</div>
         <Btn onClick={handleGen} disabled={!axis||!tone||!style||loading} full>{loading?"Génération…":"✦ Générer le post"}</Btn>
       </Card>
-
       {post
         ?<Card>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -597,19 +613,15 @@ function GenererTab(props) {
   );
 }
 
-// ─── InterviewTab ──────────────────────────────────────────────────
 function InterviewTab(props) {
-  // basePost géré par le parent pour persister
   var basePost  = props.basePost;
   var setBasePost = props.setBasePost;
   var enriched  = props.enriched;
   var setEnriched = props.setEnriched;
-
   var _q  = useState([]); var questions=_q[0]; var setQuestions=_q[1];
   var _an = useState({}); var answers=_an[0]; var setAnswers=_an[1];
   var _lq = useState(false); var loadQ=_lq[0]; var setLoadQ=_lq[1];
   var _le = useState(false); var loadE=_le[0]; var setLoadE=_le[1];
-
   async function handleGenQ() {
     if (!basePost.trim()) return;
     setLoadQ(true);
@@ -622,7 +634,6 @@ function InterviewTab(props) {
     } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoadQ(false);
   }
-
   async function handleEnrich() {
     setLoadE(true);
     try {
@@ -633,23 +644,14 @@ function InterviewTab(props) {
     } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoadE(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
         <p style={{fontSize:13,fontWeight:500,color:C.gray900,marginBottom:4}}>Post de base</p>
         <p style={{fontSize:11,color:C.gray400,marginBottom:10,lineHeight:1.4}}>Collez votre post ou transférez-le depuis Générer.</p>
-        <textarea
-          value={basePost}
-          onChange={function(e){ setBasePost(e.target.value); setQuestions([]); setAnswers({}); setEnriched(""); }}
-          placeholder="Collez votre post ici…"
-          rows={5}
-          style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6,marginBottom:10}}
-        />
+        <textarea value={basePost} onChange={function(e){ setBasePost(e.target.value); setQuestions([]); setAnswers({}); setEnriched(""); }} placeholder="Collez votre post ici…" rows={5} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6,marginBottom:10}}/>
         {basePost.trim()&&questions.length===0&&(
-          <Btn sm onClick={handleGenQ} disabled={loadQ} style={{marginBottom:12}}>
-            {loadQ?"Génération…":"Générer les questions"}
-          </Btn>
+          <Btn sm onClick={handleGenQ} disabled={loadQ} style={{marginBottom:12}}>{loadQ?"Génération…":"Générer les questions"}</Btn>
         )}
         {questions.length>0&&(
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -657,19 +659,12 @@ function InterviewTab(props) {
               <div style={{background:C.gray50,borderLeft:"3px solid "+C.navy,borderRadius:"0 8px 8px 0",padding:"8px 10px",marginBottom:6}}>
                 <p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p>
               </div>
-              <textarea
-                value={answers[i]||""}
-                onChange={function(e){var v=e.target.value; setAnswers(function(p){var n=Object.assign({},p); n[i]=v; return n;});}}
-                placeholder="Votre réponse…"
-                rows={2}
-                style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}
-              />
+              <textarea value={answers[i]||""} onChange={function(e){var v=e.target.value; setAnswers(function(p){var n=Object.assign({},p); n[i]=v; return n;});}} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
             </div>;})}
             <Btn full onClick={handleEnrich} disabled={loadE}>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
           </div>
         )}
       </Card>
-
       {enriched
         ?<Card style={{borderTop:"3px solid "+C.green}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -699,13 +694,12 @@ function InterviewTab(props) {
   );
 }
 
-// ─── AnalyserTab ───────────────────────────────────────────────────
 function AnalyserTab(props) {
   var post    = props.analyserPost;
   var setPost = props.setAnalyserPost;
-  var _an = useState(null); var analysis=_an[0]; var setAnalysis=_an[1];
+  var analysis    = props.analysis;
+  var setAnalysis = props.setAnalysis;
   var _l  = useState(false); var loading=_l[0]; var setLoading=_l[1];
-
   async function handleAnalyze() {
     if (!post) return;
     setLoading(true);
@@ -714,17 +708,12 @@ function AnalyserTab(props) {
       var userMsg = "Analyse ce post LinkedIn :\n\n" + post;
       var sys = "Expert LinkedIn. Réponds UNIQUEMENT en JSON valide sans aucun texte avant ou après. Format exact : {\"score\":7,\"hook\":{\"note\":6,\"comment\":\"...\"},\"structure\":{\"note\":7,\"comment\":\"...\"},\"ton\":{\"note\":8,\"comment\":\"...\"},\"longueur\":{\"note\":5,\"comment\":\"...\"},\"points_forts\":[\"...\"],\"points_faibles\":[\"...\"],\"recommandations\":[\"...\"]}";
       var txt = await callClaude(userMsg, sys, 800);
-      console.log("Analyse brute :", txt.substring(0,200));
       var p = parseJSON(txt);
-      if(p&&p.score!==undefined) {
-        setAnalysis(p);
-      } else {
-        props.showToast("⚠️ Format inattendu — voir console");
-      }
+      if(p&&p.score!==undefined) { setAnalysis(p); }
+      else { props.showToast("⚠️ Format inattendu"); }
     } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
@@ -732,16 +721,9 @@ function AnalyserTab(props) {
           <span style={{fontSize:13,fontWeight:500}}>Post à analyser</span>
           <CharBadge n={post.length}/>
         </div>
-        <textarea
-          value={post}
-          onChange={function(e){setPost(e.target.value); setAnalysis(null);}}
-          placeholder="Collez votre post ici…"
-          rows={10}
-          style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:12}}
-        />
+        <textarea value={post} onChange={function(e){setPost(e.target.value); setAnalysis(null);}} placeholder="Collez votre post ici…" rows={10} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:12}}/>
         <Btn onClick={handleAnalyze} disabled={!post||loading} full>{loading?"Analyse…":"Analyser ce post"}</Btn>
       </Card>
-
       <Card>
         {!analysis
           ?<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:200}}>
@@ -785,7 +767,6 @@ function AnalyserTab(props) {
   );
 }
 
-// ─── OptimiserTab ──────────────────────────────────────────────────
 function OptimiserTab(props) {
   var post    = props.optimiserPost;
   var setPost = props.setOptimiserPost;
@@ -793,7 +774,6 @@ function OptimiserTab(props) {
   var _fi = useState(""); var freeInst=_fi[0]; var setFreeInst=_fi[1];
   var _op = useState(""); var optimPost=_op[0]; var setOptimPost=_op[1];
   var _l  = useState(false); var loading=_l[0]; var setLoading=_l[1];
-
   async function handleOptimize() {
     if (!post) return;
     setLoading(true);
@@ -806,7 +786,6 @@ function OptimiserTab(props) {
     } catch(e) { props.showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
       <Card>
@@ -827,7 +806,6 @@ function OptimiserTab(props) {
           {loading?"Optimisation…":"Optimiser"+(selAxes.length?" ("+selAxes.length+")":"")}
         </Btn>
       </Card>
-
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {post&&(
           <Card>
@@ -863,15 +841,15 @@ function OptimiserTab(props) {
   );
 }
 
-// ─── CreerTab ──────────────────────────────────────────────────────
+// ─── CreerTab — états partagés remontés ici pour persister ────────
 function CreerTab(props) {
   var _at = useState("generer"); var activeTab=_at[0]; var setActiveTab=_at[1];
-
-  // États partagés entre onglets — persistent lors des changements d'onglet
   var _gp = useState(""); var genPost=_gp[0]; var setGenPost=_gp[1];
   var _bp = useState(""); var basePost=_bp[0]; var setBasePost=_bp[1];
   var _en = useState(""); var enriched=_en[0]; var setEnriched=_en[1];
   var _ap = useState(""); var analyserPost=_ap[0]; var setAnalyserPost=_ap[1];
+  // analysis persisté ici — ne disparaît plus quand on change d'onglet
+  var _an = useState(null); var analysis=_an[0]; var setAnalysis=_an[1];
   var _op = useState(""); var optimiserPost=_op[0]; var setOptimiserPost=_op[1];
 
   var TABS = [
@@ -881,51 +859,38 @@ function CreerTab(props) {
     {id:"optimiser", label:"Optimiser"},
   ];
 
-  function goInterview(post)  { setBasePost(post);     setActiveTab("interview"); }
-  function goAnalyser(post)   { setAnalyserPost(post); setActiveTab("analyser"); }
-  function goOptimiser(post)  { setOptimiserPost(post);setActiveTab("optimiser"); }
+  function goInterview(post)  { setBasePost(post);      setActiveTab("interview"); }
+  function goAnalyser(post)   { setAnalyserPost(post);  setAnalysis(null); setActiveTab("analyser"); }
+  function goOptimiser(post)  { setOptimiserPost(post); setActiveTab("optimiser"); }
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}}>
       <div style={{height:40,background:"#fff",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"stretch",padding:"0 1.25rem",flexShrink:0}}>
         {TABS.map(function(tab){
           var isOn = activeTab===tab.id;
-          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:"2px solid "+(isOn?C.navy:"transparent"),background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;
+          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{padding:"0 16px",fontSize:12,color:isOn?C.navy:C.gray400,fontWeight:isOn?500:400,borderBottom:"2px solid "+(isOn?C.navy:"transparent"),background:"none",border:"none",borderBottom:"2px solid "+(isOn?C.navy:"transparent"),cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{tab.label}</button>;
         })}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"1.25rem",background:C.gray50}}>
         <div style={{maxWidth:900,margin:"0 auto"}}>
           {activeTab==="generer"   && <GenererTab
-            profile={props.profile}
-            selectedAxes={props.selectedAxes}
-            prefill={props.prefill}
-            onSavePost={props.onSavePost}
-            showToast={props.showToast}
-            post={genPost}
-            setPost={setGenPost}
-            onGoInterview={goInterview}
+            profile={props.profile} selectedAxes={props.selectedAxes} prefill={props.prefill}
+            onSavePost={props.onSavePost} showToast={props.showToast}
+            post={genPost} setPost={setGenPost} onGoInterview={goInterview}
           />}
           {activeTab==="interview" && <InterviewTab
-            basePost={basePost}
-            setBasePost={setBasePost}
-            enriched={enriched}
-            setEnriched={setEnriched}
-            onSavePost={props.onSavePost}
-            showToast={props.showToast}
-            onGoAnalyser={goAnalyser}
+            basePost={basePost} setBasePost={setBasePost}
+            enriched={enriched} setEnriched={setEnriched}
+            onSavePost={props.onSavePost} showToast={props.showToast} onGoAnalyser={goAnalyser}
           />}
           {activeTab==="analyser"  && <AnalyserTab
-            analyserPost={analyserPost}
-            setAnalyserPost={setAnalyserPost}
-            showToast={props.showToast}
-            onGoOptimiser={goOptimiser}
+            analyserPost={analyserPost} setAnalyserPost={setAnalyserPost}
+            analysis={analysis} setAnalysis={setAnalysis}
+            showToast={props.showToast} onGoOptimiser={goOptimiser}
           />}
           {activeTab==="optimiser" && <OptimiserTab
-            optimiserPost={optimiserPost}
-            setOptimiserPost={setOptimiserPost}
-            onSavePost={props.onSavePost}
-            showToast={props.showToast}
-            onGoAnalyser={goAnalyser}
+            optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost}
+            onSavePost={props.onSavePost} showToast={props.showToast} onGoAnalyser={goAnalyser}
           />}
         </div>
       </div>
@@ -940,14 +905,14 @@ function MesPostsTab(props) {
   var filtered = filter==="all" ? props.posts : props.posts.filter(function(p){return p.axis===filter;});
   return (
     <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.5rem",background:C.gray50}}>
-      <div style={{maxWidth:900,margin:"0 auto"}}>
+      <div style={{maxWidth:1200,margin:"0 auto"}}>
         <p style={{fontSize:16,fontWeight:500,color:C.gray900,marginBottom:14}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({props.posts.length})</span></p>
         <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
           {["all"].concat(axes).map(function(a){return <button key={a} onClick={function(){setFilter(a);}} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?"0.5px solid "+C.navyMid:"0.5px solid "+C.gray200,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>;})}
         </div>
         {filtered.length===0
           ?<Empty icon="📝" text="Aucun post sauvegardé."/>
-          :<div style={{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}}>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10}}>
             {filtered.map(function(p){return <div key={p.id} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -1065,7 +1030,6 @@ function AppShell() {
   var _tm=useState(""); var toastMsg=_tm[0]; var setToastMsg=_tm[1];
   var toastTimer = useRef(null);
   function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current=setTimeout(function(){setToastMsg("");},2800); }
-
   var _at=useState("profil"); var activeTab=_at[0]; var setActiveTab=_at[1];
   var _pr=useState(function(){return store.get(SK.PROFILE);}); var profile=_pr[0]; var setProfile=_pr[1];
   var _as=useState(function(){return store.get(SK.AXES,[]);}); var axesSessions=_as[0]; var setAxesSessions=_as[1];
