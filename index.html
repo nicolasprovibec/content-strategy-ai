@@ -216,10 +216,25 @@ function AuthProvider({children}) {
       setLoading(prev=>{ if(prev){ var cur=netlifyIdentity.currentUser(); if(cur&&isAllowed(cur)) setUser(cur); } return false; });
     },4000);
     netlifyIdentity.on("init", u=>{ clearTimeout(t); if(u){ if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Domaine non autorisé.");} } setLoading(false); });
-    netlifyIdentity.on("login",u=>{ clearTimeout(t); netlifyIdentity.close(); if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Accès réservé aux adresses : "+ALLOWED_DOMAINS.join(", "));} setLoading(false); });
-    netlifyIdentity.on("logout",()=>{ setUser(null); setLoading(false); });
-    var cur=netlifyIdentity.currentUser(); if(cur){ clearTimeout(t); if(isAllowed(cur))setUser(cur); else{netlifyIdentity.logout();setError("Domaine non autorisé.");} setLoading(false); }
-    return ()=>{ clearTimeout(t); netlifyIdentity.off("init"); netlifyIdentity.off("login"); netlifyIdentity.off("logout"); };
+
+    netlifyIdentity.on("login", u=>{ clearTimeout(t); netlifyIdentity.close(); if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Accès réservé aux adresses : "+ALLOWED_DOMAINS.join(", "));} setLoading(false); });
+
+    netlifyIdentity.on("logout", ()=>{ setUser(null); setLoading(false); });
+
+    // Quand le widget se ferme (après invite/recovery), vérifier si un user est connecté
+    netlifyIdentity.on("close", ()=>{
+      var cur = netlifyIdentity.currentUser();
+      if (cur) {
+        if (isAllowed(cur)) { setUser(cur); setError(null); }
+        else { netlifyIdentity.logout(); setError("Domaine non autorisé."); }
+      }
+      setLoading(false);
+    });
+
+    var cur=netlifyIdentity.currentUser();
+    if(cur){ clearTimeout(t); if(isAllowed(cur))setUser(cur); else{netlifyIdentity.logout();setError("Domaine non autorisé.");} setLoading(false); }
+
+    return ()=>{ clearTimeout(t); netlifyIdentity.off("init"); netlifyIdentity.off("login"); netlifyIdentity.off("logout"); netlifyIdentity.off("close"); };
   },[]);
   return <AuthContext.Provider value={{user,loading,error,logout}}>{children}</AuthContext.Provider>;
 }
@@ -417,7 +432,7 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
       <Pill active={filter==="all"}  onClick={()=>setFilter("all")}>Tous ({uniqueAxes.length})</Pill>
       <Pill active={filter==="fav"}  onClick={()=>setFilter("fav")}>Favoris ★ {favAxes.length}</Pill>
       <Pill active={filter==="used"} onClick={()=>setFilter("used")}>Sélectionnés ✓ {selectedAxes.length}</Pill>
-      <Pill active={filter==="new"}  onClick={()=>setFilter("new")}>Nouveaux</Pill>
+
       <div style={{marginLeft:"auto",display:"flex",gap:6}}>
         <Pill warn={mode==="replace"} onClick={()=>{ setMode(m=>m==="replace"?"select":"replace"); setMarked([]); }}>{mode==="replace"?"✕ Annuler":"↺ Remplacer"}</Pill>
         <Pill onClick={()=>regen(6,[])} disabled={loading}>{loading?"…":"↺ Regénérer"}</Pill>
@@ -722,7 +737,7 @@ function InterviewTab({basePost,setBasePost,enriched,setEnriched,onSavePost,show
 }
 
 // ─── ANALYSER ─────────────────────────────────────────────────────
-function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToast,onGoOptimiser}) {
+function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToast,onGoOptimiser,onSavePost}) {
   const [loading,setLoading]=useState(false);
 
   async function handleAnalyze() {
@@ -803,7 +818,7 @@ function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToas
 }
 
 // ─── OPTIMISER — 2 colonnes ───────────────────────────────────────
-function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoAnalyser}) {
+function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoAnalyser,profile}) {
   const [selAxes,   setSelAxes]   = useState([]);
   const [freeInst,  setFreeInst]  = useState("");
   const [optimPost, setOptimPost] = useState("");
@@ -883,7 +898,7 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
         <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,maxWidth:480,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
             <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>N</div>
-            <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>Nicolas Girodet</p><p style={{fontSize:11,color:C.gray400}}>Co-Founder · Code Busters · À l'instant · 🌐</p></div>
+            <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>{profile?.name||"Votre nom"}</p><p style={{fontSize:11,color:C.gray400}}>AI Champion · À l'instant · 🌐</p></div>
           </div>
           <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,marginBottom:10}}>{optimPost.slice(0,180)}{optimPost.length>180&&<span style={{color:C.gray400}}>… voir plus</span>}</p>
           <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:8,display:"flex",gap:20}}>
@@ -919,26 +934,86 @@ function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
     <div style={{flex:1,overflow:"hidden"}}>
       {activeTab==="generer"   && <GenererTab   profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
       {activeTab==="interview" && <InterviewTab basePost={basePost} setBasePost={setBasePost} enriched={enriched} setEnriched={setEnriched} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
-      {activeTab==="analyser"  && <AnalyserTab  analyserPost={analyserPost} setAnalyserPost={setAnalyserPost} analysis={analysis} setAnalysis={setAnalysis} showToast={showToast} onGoOptimiser={goOptimiser}/>}
-      {activeTab==="optimiser" && <OptimiserTab optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser}/>}
+      {activeTab==="analyser"  && <AnalyserTab  analyserPost={analyserPost} setAnalyserPost={setAnalyserPost} analysis={analysis} setAnalysis={setAnalysis} showToast={showToast} onGoOptimiser={goOptimiser} onSavePost={onSavePost}/>}
+                {activeTab==="optimiser" && <OptimiserTab optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} profile={profile}/>}
     </div>
   </div>;
 }
 
 // ─── MES POSTS ────────────────────────────────────────────────────
-function MesPostsTab({posts,onDelete}) {
-  const [filter,setFilter]=useState("all");
+function MesPostsTab({posts,onDelete,onAdd}) {
+  const [filter,    setFilter]    = useState("all");
+  const [selected,  setSelected]  = useState(null);
+  const [newMode,   setNewMode]   = useState(false);
+  const [newContent,setNewContent]= useState("");
+
   const axes=[...new Set(posts.map(p=>p.axis).filter(Boolean))];
   const filtered=filter==="all"?posts:posts.filter(p=>p.axis===filter);
+
+  function handleAdd() {
+    if (!newContent.trim()) return;
+    onAdd({content:newContent.trim(),axis:"",tone:"",style:""});
+    setNewContent(""); setNewMode(false);
+  }
+
+  if (selected) return (
+    <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr",overflow:"hidden"}}>
+      <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+          <button onClick={()=>setSelected(null)} style={{fontSize:12,color:C.navy,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>← Retour</button>
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={()=>navigator.clipboard.writeText(selected.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
+            <button onClick={()=>{onDelete(selected.id);setSelected(null);}} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Supprimer</button>
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"1.5rem 2rem"}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+            {selected.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{selected.axis}</span>}
+            {selected.tone&&<span style={{fontSize:11,color:C.gray400}}>{selected.tone}{selected.style?" · "+selected.style:""}</span>}
+            <span style={{fontSize:11,color:C.gray400,marginLeft:"auto"}}>{selected.date}</span>
+          </div>
+          <p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:640,margin:"0 auto"}}>{selected.content}</p>
+        </div>
+      </div>
+      <div style={{background:C.gray50,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,maxWidth:420,width:"100%",margin:"1.5rem"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{selected.content[0]?.toUpperCase()||"P"}</div>
+            <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>Aperçu post</p><p style={{fontSize:11,color:C.gray400}}>À l'instant · 🌐</p></div>
+          </div>
+          <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,marginBottom:10}}>{selected.content.slice(0,200)}{selected.content.length>200&&<span style={{color:C.gray400}}>… voir plus</span>}</p>
+          <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:8,display:"flex",gap:16}}>
+            <span style={{fontSize:11,color:C.gray400}}>👍 J'aime</span>
+            <span style={{fontSize:11,color:C.gray400}}>💬 Commenter</span>
+            <span style={{fontSize:11,color:C.gray400}}>🔁 Partager</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.5rem",background:C.gray50}}>
     <div style={{maxWidth:1200,margin:"0 auto"}}>
-      <p style={{fontSize:16,fontWeight:500,color:C.gray900,marginBottom:14}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({posts.length})</span></p>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <p style={{fontSize:16,fontWeight:500,color:C.gray900}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({posts.length})</span></p>
+        <Btn onClick={()=>setNewMode(true)}>+ Nouveau post</Btn>
+      </div>
+
+      {newMode&&<div style={{background:"#fff",border:"1.5px solid "+C.navy,borderRadius:10,padding:16,marginBottom:16}}>
+        <p style={{fontSize:12,fontWeight:500,color:C.gray900,marginBottom:10}}>Nouveau post</p>
+        <textarea value={newContent} onChange={e=>setNewContent(e.target.value)} placeholder="Rédigez votre post ici…" rows={6} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:10}}/>
+        <div style={{display:"flex",gap:8}}>
+          <Btn onClick={handleAdd} disabled={!newContent.trim()}>💾 Sauvegarder</Btn>
+          <Btn variant="secondary" onClick={()=>{setNewMode(false);setNewContent("");}}>Annuler</Btn>
+        </div>
+      </div>}
+
       <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
         {["all",...axes].map(a=><button key={a} onClick={()=>setFilter(a)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?"0.5px solid "+C.navyMid:"0.5px solid "+C.gray200,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>)}
       </div>
       {filtered.length===0?<Empty icon="📝" text="Aucun post sauvegardé."/>:
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10}}>
-          {filtered.map(p=><div key={p.id} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14}}>
+          {filtered.map(p=><div key={p.id} onClick={()=>setSelected(p)} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,cursor:"pointer",transition:"border-color 0.15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.navy} onMouseLeave={e=>e.currentTarget.style.borderColor=C.gray200}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {p.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{p.axis}</span>}
@@ -947,7 +1022,7 @@ function MesPostsTab({posts,onDelete}) {
               <span style={{fontSize:11,color:C.gray400,flexShrink:0}}>{p.date}</span>
             </div>
             <p style={{fontSize:13,color:C.gray900,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 50%, transparent)",marginBottom:10}}>{p.content}</p>
-            <div style={{display:"flex",gap:10,borderTop:"0.5px solid "+C.gray200,paddingTop:8}}>
+            <div style={{display:"flex",gap:10,borderTop:"0.5px solid "+C.gray200,paddingTop:8}} onClick={e=>e.stopPropagation()}>
               <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
               <button onClick={()=>onDelete(p.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
             </div>
@@ -1100,10 +1175,10 @@ function AppShell() {
     <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
     <main style={{flex:1,overflow:"hidden"}}>
       {activeTab==="profil"  && <ProfilTab profile={profile} onSave={p=>{setProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-      {activeTab==="axes"    && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>{createRoadmap();setActiveTab("roadmap");}}/>}
+      {activeTab==="axes"    && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>setActiveTab("roadmap")}/>}
       {activeTab==="roadmap" && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={setActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>setRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)setActiveRmId(nx.length?nx[0].id:null);return nx;})} onRoadmapGenerated={rm=>{setRoadmaps(p=>[...p,rm]);setActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
-      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])} showToast={showToast}/>}
-      {activeTab==="mesposts"&& <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))}/>}
+      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast}/>}
+      {activeTab==="mesposts"&& <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
       {activeTab==="insights"&& <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
     </main>
   </div>;
