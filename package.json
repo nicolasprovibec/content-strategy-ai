@@ -1,0 +1,8 @@
+{
+  "name": "content-strategy-ai",
+  "version": "1.0.0",
+  "dependencies": {
+    "@netlify/blobs": "^6.0.0",
+    "jsonwebtoken": "^9.0.0"
+  }
+}
