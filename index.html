@@ -66,6 +66,14 @@ const C = {
 const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const toDay = () => new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
 
+// pubWeeks shape : { [roadmapId]: number[] }
+// Helper : get weeks array for a given roadmapId
+function getPubWeeksForRm(pubWeeks, rmId) {
+  if (!rmId) return [];
+  const v = pubWeeks[rmId];
+  return Array.isArray(v) ? v : [];
+}
+
 function parseJSON(txt) {
   if (!txt) return null;
   var c = txt.replace(/```json\n?/g,"").replace(/```\n?/g,"").trim();
@@ -415,7 +423,7 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
 }
 
 // ─── ROADMAP ──────────────────────────────────────────────────────
-function RoadmapTab({roadmaps,activeRmId,selectedAxes,profile,pubWeeks,showToast,
+function RoadmapTab({roadmaps,activeRmId,selectedAxes,profile,pubWeeksArr,showToast,
   onSetActive,onNewRoadmap,onRenameRoadmap,onDeleteRoadmap,
   onRoadmapGenerated,onRoadmapUpdated,onWeekUpdated,onGoCreer}) {
 
@@ -428,13 +436,16 @@ function RoadmapTab({roadmaps,activeRmId,selectedAxes,profile,pubWeeks,showToast
 
   const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0]||null;
   const weeks    = activeRm?.weeks||[];
+  // pubWeeksArr is number[] for the active roadmap
+  const pubWeekSet = new Set(pubWeeksArr);
+
   const monthSet = [];
   weeks.forEach(w=>{ if(!monthSet.includes(w.month)) monthSet.push(w.month); });
   const quarters = [];
   for (let i=0;i<monthSet.length;i+=3) {
     const qM=monthSet.slice(i,i+3);
     const qW=weeks.filter(w=>qM.includes(w.month));
-    quarters.push({index:i/3, months:qM, weeks:qW, done:qW.filter(w=>pubWeeks.has(Number(w.week))).length});
+    quarters.push({index:i/3, months:qM, weeks:qW, done:qW.filter(w=>pubWeekSet.has(Number(w.week))).length});
   }
 
   async function handleGen() {
@@ -528,7 +539,7 @@ Génère un nouveau thème et hook différents. Réponds UNIQUEMENT en JSON.`;
                   {q.months.map(month=><div key={month}>
                     <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8,paddingBottom:5,borderBottom:"0.5px solid "+C.gray200}}>{month}</div>
                     {q.weeks.filter(w=>w.month===month).map(w=>{
-                      const isDone=pubWeeks.has(Number(w.week));
+                      const isDone=pubWeekSet.has(Number(w.week));
                       const isEdit=editWeek?.week===w.week;
                       const isRegen=regenId===w.week;
                       return <div key={w.week} style={{border:"0.5px solid "+(isDone?"#10B981":C.gray200),borderRadius:8,marginBottom:8,background:isDone?"#F0FDF4":"#fff",overflow:"hidden"}}>
@@ -606,7 +617,7 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setP
       const prompt=`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}${extras}\nAxe : ${axis.title} — ${axis.description}\nTon : ${tone}\nStyle : ${style}${ctx}\n\nGénère le post LinkedIn complet.`;
       const txt=await callClaude(prompt,LINKEDIN_RULES,1200);
       setPost(txt);
-      if (prefill?.roadmapSug?.week && onMarkDone) onMarkDone(Number(prefill.roadmapSug.week));
+      if (prefill?.roadmapSug?.week != null && onMarkDone) onMarkDone(Number(prefill.roadmapSug.week));
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
@@ -984,19 +995,7 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
     setLoading(true);
     try {
       const hist=insights.slice(0,5).map(i=>`- imp:${i.impressions} likes:${i.likes} comm:${i.comments} | extrait: "${i.postSnippet?.slice(0,80)}"`).join("\n");
-      const prompt=`Analyse les performances de ce post LinkedIn publié.
-
-POST :
-${selPost}
-
-PERFORMANCES :
-- Impressions : ${metrics.impressions}
-- Likes : ${metrics.likes}
-- Commentaires : ${metrics.comments}
-- Taux d'engagement : ${engRate||"—"}%
-${hist?"\nHISTORIQUE DES POSTS PRÉCÉDENTS :\n"+hist:""}
-
-Analyse ce qui a fonctionné ou non dans ce post : hook, longueur, ton, structure, angle. Donne des enseignements concrets pour les prochains posts. Ne régénère PAS le post. Sois direct et actionnable.`;
+      const prompt=`Analyse les performances de ce post LinkedIn publié.\n\nPOST :\n${selPost}\n\nPERFORMANCES :\n- Impressions : ${metrics.impressions}\n- Likes : ${metrics.likes}\n- Commentaires : ${metrics.comments}\n- Taux d'engagement : ${engRate||"—"}%\n${hist?"\nHISTORIQUE DES POSTS PRÉCÉDENTS :\n"+hist:""}\n\nAnalyse ce qui a fonctionné ou non dans ce post : hook, longueur, ton, structure, angle. Donne des enseignements concrets pour les prochains posts. Ne régénère PAS le post. Sois direct et actionnable.`;
       setAnalysis(await callClaude(prompt,"Tu es expert LinkedIn. Analyse les performances d'un post publié et donne des enseignements concrets. Tu NE régénères PAS le post.",800));
       onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments,engRate:engRate||"0"});
       showToast("✓ Insight enregistré");
@@ -1010,7 +1009,6 @@ Analyse ce qui a fonctionné ou non dans ce post : hook, longueur, ton, structur
         <p style={{fontSize:15,fontWeight:500,color:C.gray900,marginBottom:4}}>Insights J+7</p>
         <p style={{fontSize:12,color:C.gray400,lineHeight:1.5}}>Renseignez les performances d'un post publié pour enrichir votre stratégie.</p>
       </div>
-
       <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
         <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
@@ -1029,7 +1027,6 @@ Analyse ce qui a fonctionné ou non dans ce post : hook, longueur, ton, structur
           <textarea value={selPost} onChange={e=>setSelPost(e.target.value)} placeholder="Ou collez votre post ici…" rows={3} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/>
         </div>}
       </div>
-
       <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
         <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}>
           <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
@@ -1045,15 +1042,12 @@ Analyse ce qui a fonctionné ou non dans ce post : hook, longueur, ton, structur
           {engRate&&<div style={{padding:"6px 10px",background:C.gray50,borderRadius:8,display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:C.gray600}}>Taux d'engagement</span><span style={{fontSize:13,fontWeight:500,color:C.green}}>{engRate}%</span></div>}
         </div>
       </div>
-
       <Btn full onClick={analyze} disabled={!selPost.trim()||!metrics.impressions||loading}>{loading?"Analyse…":"📊 Analyser les performances"}</Btn>
-
       {analysis&&<div style={{background:C.navyLight,borderRadius:8,padding:14,border:"0.5px solid "+C.navyMid}}>
         <p style={{fontSize:11,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Enseignements</p>
         <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,whiteSpace:"pre-wrap"}}>{analysis}</p>
       </div>}
     </div>
-
     <div style={{padding:"1.5rem",background:C.gray50,overflowY:"auto"}}>
       <p style={{fontSize:14,fontWeight:500,color:C.gray900,marginBottom:12}}>Historique des analyses</p>
       {insights.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -1095,6 +1089,7 @@ function AppShell() {
   const [selectedAxes, setSelectedAxes] = useState([]);
   const [roadmaps,     setRoadmaps]     = useState([]);
   const [activeRmId,   setActiveRmId]   = useState(null);
+  // pubWeeks : { [roadmapId]: number[] }  — always a plain object, never a Set
   const [pubWeeks,     setPubWeeks]     = useState({});
   const [posts,        setPosts]        = useState([]);
   const [insights,     setInsights]     = useState([]);
@@ -1102,7 +1097,7 @@ function AppShell() {
 
   function showToast(m) { clearTimeout(toastTimer.current); setToast(m); toastTimer.current=setTimeout(()=>setToast(""),2800); }
 
-  // Chargement
+  // ── Chargement ──
   useEffect(()=>{
     if (!auth.user||dataLoaded) return;
     const failsafe=setTimeout(()=>setDataLoaded(true),6000);
@@ -1115,8 +1110,15 @@ function AppShell() {
         if(d.selectedAxes) setSelectedAxes(d.selectedAxes);
         if(d.roadmaps)     setRoadmaps(d.roadmaps);
         if(d.activeRmId)   setActiveRmId(d.activeRmId);
-        if(d.pubWeeks && !Array.isArray(d.pubWeeks) && typeof d.pubWeeks === 'object') {
-          setPubWeeks(d.pubWeeks);
+        // Migrate legacy formats: Set serialized as {}, array, or correct object
+        if (d.pubWeeks && typeof d.pubWeeks === 'object' && !Array.isArray(d.pubWeeks)) {
+          // Convert any values that might be Sets (serialized as {}) or non-arrays to []
+          const clean = {};
+          Object.keys(d.pubWeeks).forEach(k=>{
+            const v = d.pubWeeks[k];
+            clean[k] = Array.isArray(v) ? v.map(Number) : [];
+          });
+          setPubWeeks(clean);
         } else {
           setPubWeeks({});
         }
@@ -1128,7 +1130,7 @@ function AppShell() {
     }).catch(()=>{ clearTimeout(failsafe); setDataLoaded(true); });
   },[auth.user]);
 
-  // Sauvegarde auto debounced
+  // ── Sauvegarde auto debounced ──
   useEffect(()=>{
     if (!dataLoaded) return;
     clearTimeout(saveTimer.current);
@@ -1148,10 +1150,23 @@ function AppShell() {
     setFavAxes(p=>p.filter(x=>x!==id));
   }
 
+  // ── markDone : ajoute weekNum dans pubWeeks[activeRmId] ──
+  function handleMarkDone(weekNum) {
+    if (!activeRmId) return;
+    setPubWeeks(prev=>{
+      const cur = Array.isArray(prev[activeRmId]) ? prev[activeRmId] : [];
+      if (cur.includes(Number(weekNum))) return prev;
+      return {...prev, [activeRmId]: [...cur, Number(weekNum)]};
+    });
+  }
+
   if (!dataLoaded&&auth.user) return <div style={{height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:C.gray400}}>
     <div style={{width:32,height:32,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
     <p style={{fontSize:13}}>Chargement de vos données…</p>
   </div>;
+
+  // Compute pubWeeksArr for the active roadmap (always a number[])
+  const pubWeeksArr = getPubWeeksForRm(pubWeeks, activeRmId);
 
   return <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
     <Toast message={toast}/>
@@ -1172,7 +1187,7 @@ function AppShell() {
         activeRmId={activeRmId}
         selectedAxes={selectedAxes}
         profile={profile}
-        pubWeeks={new Set(Array.isArray(pubWeeks[activeRmId]) ? pubWeeks[activeRmId] : [])}
+        pubWeeksArr={pubWeeksArr}
         showToast={showToast}
         onSetActive={setActiveRmId}
         onNewRoadmap={createRoadmap}
@@ -1189,7 +1204,7 @@ function AppShell() {
         prefill={creerPrefill}
         onSavePost={p=>{ setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]); showToast("✓ Post sauvegardé"); }}
         showToast={showToast}
-        onMarkDone={weekNum=>setPubWeeks(p=>new Set([...p,Number(weekNum)]))}
+        onMarkDone={handleMarkDone}
       />}
       {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
       {activeTab==="insights" && <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
