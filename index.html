@@ -38,7 +38,7 @@ const OBJECTIFS = [
   {id:"recrutement", label:"Recrutement"},
   {id:"reseau",      label:"Développement réseau"},
 ];
-const DURATIONS  = [1,2,3,6];
+const DURATIONS  = [1,2,3];
 const OPTIM_AXES = [
   {id:"hook",  label:"Hook",         desc:"Rendre les 2 premières lignes irrésistibles"},
   {id:"lisib", label:"Lisibilité",   desc:"Aérer, 1 idée par ligne"},
@@ -441,29 +441,14 @@ function RoadmapTab({roadmaps,activeRmId,selectedAxes,profile,pubWeeks,showToast
     if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
     setLoading(true); showToast("⏳ Génération en cours…");
     try {
-      const axesList=selectedAxes.map(a=>`- ${a.title} : ${a.description}`).join("\n");
-      const prompt=`Tu es expert en stratégie de contenu LinkedIn. Génère une roadmap éditoriale de ${dur} mois (${dur*4} semaines).
-
-PROFIL :
-- Nom : ${profile?.name||""}
-- Vision : ${profile?.vision||""}
-- Contexte : ${profile?.context||""}${profile?.audience?"\n- Audience : "+profile.audience:""}
-
-AXES (utilise UNIQUEMENT ces axes, répartis équitablement) :
+      const axesList=selectedAxes.map(a=>`- ${a.title}`).join("\n");
+      const prompt=`Roadmap LinkedIn ${dur} mois (${dur*4} semaines) pour ${profile?.name||""}.
+Vision : ${profile?.vision||""}
+Axes (UNIQUEMENT ces axes) :
 ${axesList}
 
-Pour chaque semaine :
-- "theme" : titre accrocheur et précis en français (ex: "Pourquoi j'ai arrêté les réunions du lundi")
-- "hook" : première ligne du post, percutante, max 15 mots
-- "angle" : angle éditorial précis
-- "detail" : description concrète du contenu du post
-- "axis" : titre EXACT d'un des axes ci-dessus
-- "tone" : Inspirant/Éducatif/Provocateur/Authentique/Expert
-- "style" : Storytelling/Liste Tips/Opinion tranchée/Étude de cas/Question ouverte
-- "month" : Mois 1, Mois 2, etc.
-- "week" : numéro (1 à ${dur*4})
-
-Réponds UNIQUEMENT avec un objet JSON valide.`;
+Pour chaque semaine génère : week, month (Mois 1...), theme (titre accrocheur FR), hook (1ère ligne <15 mots), detail (1 phrase), axis (titre exact), tone (Inspirant/Éducatif/Provocateur/Authentique/Expert), style (Storytelling/Liste Tips/Opinion tranchée/Étude de cas/Question ouverte).
+Réponds UNIQUEMENT avec le JSON, rien d'autre.`;
       const sys=`{"weeks":[{"week":1,"month":"Mois 1","theme":"Titre accrocheur","hook":"Première ligne percutante","angle":"angle éditorial","detail":"Description concrète","axis":"Axe exact","tone":"Inspirant","style":"Storytelling"}]}`;
       let parsed=parseJSON(await callClaude(prompt,sys,2500));
       if (parsed&&!parsed.weeks&&Array.isArray(parsed)) parsed={weeks:parsed};
@@ -988,30 +973,53 @@ function MesPostsTab({posts,onDelete,onAdd}) {
 function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
   const [selPost,  setSelPost]  = useState("");
   const [metrics,  setMetrics]  = useState({impressions:"",likes:"",comments:""});
-  const [improved, setImproved] = useState("");
+  const [analysis, setAnalysis] = useState("");
   const [loading,  setLoading]  = useState(false);
   const engRate=metrics.impressions?(((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1):null;
   const avgImp=insights.length?Math.round(insights.reduce((s,i)=>s+(+i.impressions||0),0)/insights.length):null;
   const avgEng=insights.length?(insights.reduce((s,i)=>{ const e=i.impressions?(((+i.likes||0)+(+i.comments||0))/+i.impressions*100):0; return s+e; },0)/insights.length).toFixed(1):null;
+
   async function analyze() {
-    if (!selPost.trim()) return; setLoading(true);
+    if (!selPost.trim()||!metrics.impressions) return;
+    setLoading(true);
     try {
-      const hist=insights.slice(0,3).map(i=>"imp:"+i.impressions+" likes:"+i.likes+" comm:"+i.comments).join(" | ");
-      setImproved(await callClaude("Post :\n"+selPost+"\nPerf : impressions="+metrics.impressions+", likes="+metrics.likes+", commentaires="+metrics.comments+(hist?"\nHistorique : "+hist:"")+"\n\nAnalyse et génère une version améliorée.",LINKEDIN_RULES,1200));
-      onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments});
-      showToast("✓ Analyse enregistrée");
+      const hist=insights.slice(0,5).map(i=>`- imp:${i.impressions} likes:${i.likes} comm:${i.comments} | extrait: "${i.postSnippet?.slice(0,80)}"`).join("\n");
+      const prompt=`Analyse les performances de ce post LinkedIn publié.
+
+POST :
+${selPost}
+
+PERFORMANCES :
+- Impressions : ${metrics.impressions}
+- Likes : ${metrics.likes}
+- Commentaires : ${metrics.comments}
+- Taux d'engagement : ${engRate||"—"}%
+${hist?"\nHISTORIQUE DES POSTS PRÉCÉDENTS :\n"+hist:""}
+
+Analyse ce qui a fonctionné ou non dans ce post : hook, longueur, ton, structure, angle. Donne des enseignements concrets pour les prochains posts. Ne régénère PAS le post. Sois direct et actionnable.`;
+      setAnalysis(await callClaude(prompt,"Tu es expert LinkedIn. Analyse les performances d'un post publié et donne des enseignements concrets. Tu NE régénères PAS le post.",800));
+      onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments,engRate:engRate||"0"});
+      showToast("✓ Insight enregistré");
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
+
   return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"calc(100vh - 56px)"}}>
     <div style={{padding:"1.5rem",background:"#fff",borderRight:"0.5px solid "+C.gray200,overflowY:"auto",display:"flex",flexDirection:"column",gap:14}}>
-      <div><p style={{fontSize:15,fontWeight:500,color:C.gray900,marginBottom:4}}>Insights J+7</p><p style={{fontSize:12,color:C.gray400,lineHeight:1.5}}>{insights.length>0?"L'IA tient compte de vos "+insights.length+" analyse(s) précédente(s).":"Renseignez les performances d'un post publié."}</p></div>
+      <div>
+        <p style={{fontSize:15,fontWeight:500,color:C.gray900,marginBottom:4}}>Insights J+7</p>
+        <p style={{fontSize:12,color:C.gray400,lineHeight:1.5}}>Renseignez les performances d'un post publié pour enrichir votre stratégie.</p>
+      </div>
+
       <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
-        <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}><div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div><span style={{fontSize:11,fontWeight:500}}>Choisir le post</span></div>
+        <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>1</div>
+          <span style={{fontSize:11,fontWeight:500}}>Choisir le post publié</span>
+        </div>
         {selPost?<div style={{padding:"10px 12px",background:C.navyLight,borderLeft:"3px solid "+C.navy}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <p style={{fontSize:12,fontWeight:500,color:C.navy,lineHeight:1.5,flex:1}}>{selPost.slice(0,120)}{selPost.length>120?"…":""}</p>
-            <button onClick={()=>{setSelPost("");setImproved("");}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,flexShrink:0,marginLeft:8,fontFamily:"inherit"}}>Changer →</button>
+            <button onClick={()=>{setSelPost("");setAnalysis("");}} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,flexShrink:0,marginLeft:8,fontFamily:"inherit"}}>Changer →</button>
           </div>
         </div>:<div style={{padding:"10px 12px"}}>
           {posts.length>0&&<select value="" onChange={e=>setSelPost(e.target.value)} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,marginBottom:8,background:C.gray50,outline:"none",color:C.gray900,fontFamily:"inherit"}}>
@@ -1021,8 +1029,12 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
           <textarea value={selPost} onChange={e=>setSelPost(e.target.value)} placeholder="Ou collez votre post ici…" rows={3} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/>
         </div>}
       </div>
+
       <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
-        <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}><div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div><span style={{fontSize:11,fontWeight:500}}>Performances J+7</span></div>
+        <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}>
+          <div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div>
+          <span style={{fontSize:11,fontWeight:500}}>Performances J+7</span>
+        </div>
         <div style={{padding:"10px 12px"}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             {[{l:"Impressions",k:"impressions"},{l:"Likes",k:"likes"},{l:"Commentaires",k:"comments"}].map(x=><div key={x.k}>
@@ -1033,12 +1045,15 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
           {engRate&&<div style={{padding:"6px 10px",background:C.gray50,borderRadius:8,display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:C.gray600}}>Taux d'engagement</span><span style={{fontSize:13,fontWeight:500,color:C.green}}>{engRate}%</span></div>}
         </div>
       </div>
-      <Btn full onClick={analyze} disabled={!selPost.trim()||loading}>{loading?"Analyse…":"✦ Analyser & générer une version améliorée"}</Btn>
-      {improved&&<div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post amélioré</span><IBtn onClick={()=>navigator.clipboard.writeText(improved)} color={C.navy}>Copier</IBtn></div>
-        <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{improved}</div>
+
+      <Btn full onClick={analyze} disabled={!selPost.trim()||!metrics.impressions||loading}>{loading?"Analyse…":"📊 Analyser les performances"}</Btn>
+
+      {analysis&&<div style={{background:C.navyLight,borderRadius:8,padding:14,border:"0.5px solid "+C.navyMid}}>
+        <p style={{fontSize:11,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8}}>Enseignements</p>
+        <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,whiteSpace:"pre-wrap"}}>{analysis}</p>
       </div>}
     </div>
+
     <div style={{padding:"1.5rem",background:C.gray50,overflowY:"auto"}}>
       <p style={{fontSize:14,fontWeight:500,color:C.gray900,marginBottom:12}}>Historique des analyses</p>
       {insights.length>0&&<div style={{display:"flex",gap:8,marginBottom:16}}>
@@ -1048,10 +1063,15 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
         insights.map(ins=>{
           const eng=ins.impressions?(((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1):null;
           return <div key={ins.id} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden",marginBottom:8}}>
-            <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200,display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><IBtn onClick={()=>onDeleteInsight(ins.id)} color={C.red}>Suppr.</IBtn></div>
-            <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
+            <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:11,color:C.gray400}}>{ins.date}</span>
+              <IBtn onClick={()=>onDeleteInsight(ins.id)} color={C.red}>Suppr.</IBtn>
+            </div>
+            <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200}}>
+              <p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p>
+            </div>
             <div style={{padding:"8px 12px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-              {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?eng+"%":"—",g:true}].map(x=><div key={x.l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{x.l}</p><p style={{fontSize:13,fontWeight:500,color:x.g?C.green:C.gray900}}>{x.v||"—"}</p></div>)}
+              {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:ins.engRate?ins.engRate+"%":(eng?eng+"%":"—"),g:true}].map(x=><div key={x.l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{x.l}</p><p style={{fontSize:13,fontWeight:500,color:x.g?C.green:C.gray900}}>{x.v||"—"}</p></div>)}
             </div>
           </div>;
         })
