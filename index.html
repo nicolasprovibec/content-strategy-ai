@@ -1095,7 +1095,7 @@ function AppShell() {
   const [selectedAxes, setSelectedAxes] = useState([]);
   const [roadmaps,     setRoadmaps]     = useState([]);
   const [activeRmId,   setActiveRmId]   = useState(null);
-  const [pubWeeks,     setPubWeeks]     = useState({}); // { [roadmapId]: Set<weekNum> }
+  const [pubWeeks,     setPubWeeks]     = useState({});
   const [posts,        setPosts]        = useState([]);
   const [insights,     setInsights]     = useState([]);
   const [creerPrefill, setCreerPrefill] = useState(null);
@@ -1115,7 +1115,15 @@ function AppShell() {
         if(d.selectedAxes) setSelectedAxes(d.selectedAxes);
         if(d.roadmaps)     setRoadmaps(d.roadmaps);
         if(d.activeRmId)   setActiveRmId(d.activeRmId);
-        if(d.pubWeeks)     setPubWeeks(d.pubWeeks instanceof Array ? {} : (d.pubWeeks||{}));
+        if(d.pubWeeks) {
+          // Migration : ancien format tableau → nouveau format objet par roadmap
+          if (Array.isArray(d.pubWeeks)) {
+            // Ignore l'ancien format, repart à zéro proprement
+            setPubWeeks({});
+          } else if (typeof d.pubWeeks === 'object') {
+            setPubWeeks(d.pubWeeks);
+          }
+        }
         if(d.posts)        setPosts(d.posts);
         if(d.insights)     setInsights(d.insights);
         showToast("✓ Données chargées");
