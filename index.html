@@ -1115,14 +1115,10 @@ function AppShell() {
         if(d.selectedAxes) setSelectedAxes(d.selectedAxes);
         if(d.roadmaps)     setRoadmaps(d.roadmaps);
         if(d.activeRmId)   setActiveRmId(d.activeRmId);
-        if(d.pubWeeks) {
-          // Migration : ancien format tableau → nouveau format objet par roadmap
-          if (Array.isArray(d.pubWeeks)) {
-            // Ignore l'ancien format, repart à zéro proprement
-            setPubWeeks({});
-          } else if (typeof d.pubWeeks === 'object') {
-            setPubWeeks(d.pubWeeks);
-          }
+        if(d.pubWeeks && !Array.isArray(d.pubWeeks) && typeof d.pubWeeks === 'object') {
+          setPubWeeks(d.pubWeeks);
+        } else {
+          setPubWeeks({});
         }
         if(d.posts)        setPosts(d.posts);
         if(d.insights)     setInsights(d.insights);
@@ -1176,7 +1172,7 @@ function AppShell() {
         activeRmId={activeRmId}
         selectedAxes={selectedAxes}
         profile={profile}
-        pubWeeks={new Set(pubWeeks[activeRmId]||[])}
+        pubWeeks={new Set(Array.isArray(pubWeeks[activeRmId]) ? pubWeeks[activeRmId] : [])}
         showToast={showToast}
         onSetActive={setActiveRmId}
         onNewRoadmap={createRoadmap}
