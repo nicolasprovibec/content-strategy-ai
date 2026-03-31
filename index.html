@@ -22,7 +22,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 var netlifyIdentity = window.netlifyIdentity;
 netlifyIdentity.init({ logo: false });
 
@@ -38,7 +38,7 @@ const OBJECTIFS = [
   {id:"recrutement", label:"Recrutement"},
   {id:"reseau",      label:"Développement réseau"},
 ];
-const DURATIONS  = [1,2,3];
+const DURATIONS  = [1,2,3,6];
 const OPTIM_AXES = [
   {id:"hook",  label:"Hook",         desc:"Rendre les 2 premières lignes irrésistibles"},
   {id:"lisib", label:"Lisibilité",   desc:"Aérer, 1 idée par ligne"},
@@ -57,19 +57,12 @@ const NAV_ITEMS = [
   {id:"mesposts", label:"Mes posts"},
   {id:"insights", label:"Insights"},
 ];
-const SK = {
-  PROFILE:"profile", AXES:"axesSessions", FAV:"favAxes",
-  SEL:"selectedAxes", ROADMAPS:"roadmaps", ACTIVE_RM:"activeRmId",
-  PUB:"pubWeeks", POSTS:"posts", INSIGHTS:"insights",
-};
 const C = {
   navy:"#1E3A5F", navyLight:"#E8F0FA", navyMid:"#A8C0DC",
   green:"#10B981", amber:"#F59E0B", red:"#EF4444",
   gray50:"#F8FAFC", gray100:"#F1F5F9", gray200:"#E2E8F0",
   gray400:"#94A3B8", gray600:"#475569", gray900:"#0F172A",
 };
-
-// ─── UTILS ────────────────────────────────────────────────────────
 const uid   = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const toDay = () => new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
 
@@ -83,12 +76,12 @@ function parseJSON(txt) {
 }
 
 async function getToken() {
-  var user = netlifyIdentity.currentUser();
-  if (!user) throw new Error("Non authentifié");
-  try { await user.jwt(true); user = netlifyIdentity.currentUser(); } catch {}
-  var token = user?.token?.access_token;
-  if (!token) throw new Error("Token invalide");
-  return token;
+  var u = netlifyIdentity.currentUser();
+  if (!u) throw new Error("Non authentifié");
+  try { await u.jwt(true); u = netlifyIdentity.currentUser(); } catch {}
+  var t = u?.token?.access_token;
+  if (!t) throw new Error("Token invalide");
+  return t;
 }
 
 async function callClaude(userMsg, system, maxTokens) {
@@ -103,13 +96,10 @@ async function callClaude(userMsg, system, maxTokens) {
   return d?.content?.[0]?.text || "";
 }
 
-// ─── NETLIFY BLOBS ────────────────────────────────────────────────
 async function loadUserData() {
   try {
     const token = await getToken();
-    const res = await fetch("/.netlify/functions/save", {
-      headers:{"Authorization":"Bearer "+token}
-    });
+    const res = await fetch("/.netlify/functions/save", { headers:{"Authorization":"Bearer "+token} });
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -126,23 +116,14 @@ async function saveUserData(data) {
   } catch(e) { console.error("Save error:", e); }
 }
 
-// Fallback localStorage pour usage hors-ligne
-const lsStore = {
-  get: (k,fb=null) => { try { var v=localStorage.getItem("csa_"+k); return v?JSON.parse(v):fb; } catch { return fb; } },
-  set: (k,v)       => { try { localStorage.setItem("csa_"+k, JSON.stringify(v)); } catch {} },
-};
-
 // ─── PRIMITIVES ───────────────────────────────────────────────────
 function Btn({onClick,disabled=false,children,variant="primary",sm=false,full=false,style:sx}) {
   const V = {
-    primary:   {background:disabled?"#94A3B8":C.navy,color:"#fff",border:"none"},
-    secondary: {background:C.gray100,color:C.gray600,border:"0.5px solid "+C.gray200},
-    ghost:     {background:"transparent",color:C.navy,border:"0.5px solid "+C.navyMid},
+    primary:   {background:disabled?"#94A3B8":C.navy, color:"#fff", border:"none"},
+    secondary: {background:C.gray100, color:C.gray600, border:"0.5px solid "+C.gray200},
+    ghost:     {background:"transparent", color:C.navy, border:"0.5px solid "+C.navyMid},
   };
   return <button onClick={onClick} disabled={disabled} style={{display:"inline-flex",alignItems:"center",justifyContent:full?"center":"flex-start",gap:6,padding:sm?"6px 14px":"10px 20px",borderRadius:8,fontWeight:500,fontSize:sm?12:13,cursor:disabled?"not-allowed":"pointer",whiteSpace:"nowrap",fontFamily:"inherit",width:full?"100%":"auto",opacity:disabled?0.65:1,...(V[variant]||V.primary),...(sx||{})}}>{children}</button>;
-}
-function Card({children,style:sx}) {
-  return <div style={{background:"#fff",borderRadius:10,border:"0.5px solid "+C.gray200,padding:"1rem",marginBottom:10,...(sx||{})}}>{children}</div>;
 }
 function Field({label,value,onChange,placeholder,rows,type="text"}) {
   const s={width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,outline:"none",color:C.gray900,fontFamily:"inherit",background:C.gray50,resize:rows?"vertical":undefined,lineHeight:rows?1.6:undefined};
@@ -171,76 +152,39 @@ function Empty({icon,text,onBtn,btnLabel}) {
     {onBtn&&<Btn onClick={onBtn}>{btnLabel}</Btn>}
   </div>;
 }
-function ScoreBar({label,note=0}) {
-  const color=note>=7?C.green:note>=5?C.amber:C.red;
-  return <div style={{marginBottom:8}}>
-    <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-      <span style={{fontSize:12,fontWeight:500}}>{label}</span>
-      <span style={{fontSize:12,fontWeight:500,color}}>{note}/10</span>
-    </div>
-    <div style={{height:4,background:C.gray100,borderRadius:10}}>
-      <div style={{height:4,borderRadius:10,width:(note*10)+"%",background:color}}/>
-    </div>
-  </div>;
-}
 function Pill({children,active,warn,onClick,disabled}) {
   return <button onClick={onClick} disabled={disabled} style={{padding:"5px 14px",borderRadius:20,fontSize:12,cursor:disabled?"not-allowed":"pointer",background:active?C.navy:warn?"#FEF3C7":"transparent",color:active?"#fff":warn?"#92400E":C.gray600,border:"0.5px solid "+(active?C.navy:warn?C.amber:C.gray200),fontWeight:active||warn?500:400,whiteSpace:"nowrap",fontFamily:"inherit",opacity:disabled?0.5:1}}>{children}</button>;
 }
-// Sous-onglets Créer — texte pur + soulignement
+function IBtn({onClick,color,children}) {
+  return <button onClick={onClick} style={{fontSize:11,color:color||C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>{children}</button>;
+}
 function SubTabs({tabs,active,onChange}) {
   return <div style={{height:40,background:"#fff",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.5rem",gap:28,flexShrink:0}}>
     {tabs.map(t=><span key={t.id} onClick={()=>onChange(t.id)} style={{fontSize:12,color:active===t.id?C.navy:C.gray400,fontWeight:active===t.id?500:400,cursor:"pointer",lineHeight:"40px",borderBottom:"2px solid "+(active===t.id?C.navy:"transparent"),display:"inline-block",userSelect:"none"}}>{t.label}</span>)}
   </div>;
 }
-// En-tête de colonne standard
-function ColHeader({left,right,accent}) {
-  return <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",flexShrink:0,borderTop:accent?"3px solid "+accent:"none"}}>
-    <div style={{display:"flex",alignItems:"center",gap:8}}>{left}</div>
-    <div style={{display:"flex",gap:10,alignItems:"center"}}>{right}</div>
-  </div>;
-}
-function InlineBtn({onClick,color,children}) {
-  return <button onClick={onClick} style={{fontSize:11,color:color||C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>{children}</button>;
-}
 
 // ─── AUTH ─────────────────────────────────────────────────────────
-var AuthContext = React.createContext(null);
+var AuthCtx = React.createContext(null);
 function AuthProvider({children}) {
   const [user,    setUser]    = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState(null);
-  function isAllowed(u) { return ALLOWED_DOMAINS.some(d=>u?.email?.endsWith(d)); }
+  function isOk(u) { return ALLOWED_DOMAINS.some(d=>u?.email?.endsWith(d)); }
   function logout() { netlifyIdentity.logout(); setUser(null); }
   useEffect(()=>{
-    var t = setTimeout(()=>{
-      setLoading(prev=>{ if(prev){ var cur=netlifyIdentity.currentUser(); if(cur&&isAllowed(cur)) setUser(cur); } return false; });
-    },4000);
-    netlifyIdentity.on("init", u=>{ clearTimeout(t); if(u){ if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Domaine non autorisé.");} } setLoading(false); });
-
-    netlifyIdentity.on("login", u=>{ clearTimeout(t); netlifyIdentity.close(); if(isAllowed(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Accès réservé aux adresses : "+ALLOWED_DOMAINS.join(", "));} setLoading(false); });
-
+    var t = setTimeout(()=>setLoading(p=>{ if(p){ var c=netlifyIdentity.currentUser(); if(c&&isOk(c)) setUser(c); } return false; }),4000);
+    netlifyIdentity.on("init",   u=>{ clearTimeout(t); if(u){ if(isOk(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Domaine non autorisé.");} } setLoading(false); });
+    netlifyIdentity.on("login",  u=>{ clearTimeout(t); netlifyIdentity.close(); if(isOk(u)){setUser(u);setError(null);}else{netlifyIdentity.logout();setError("Accès réservé.");} setLoading(false); });
     netlifyIdentity.on("logout", ()=>{ setUser(null); setLoading(false); });
-
-    // Quand le widget se ferme (après invite/recovery), vérifier si un user est connecté
-    netlifyIdentity.on("close", ()=>{
-      var cur = netlifyIdentity.currentUser();
-      if (cur) {
-        if (isAllowed(cur)) { setUser(cur); setError(null); }
-        else { netlifyIdentity.logout(); setError("Domaine non autorisé."); }
-      }
-      setLoading(false);
-    });
-
-    var cur=netlifyIdentity.currentUser();
-    if(cur){ clearTimeout(t); if(isAllowed(cur))setUser(cur); else{netlifyIdentity.logout();setError("Domaine non autorisé.");} setLoading(false); }
-
-    return ()=>{ clearTimeout(t); netlifyIdentity.off("init"); netlifyIdentity.off("login"); netlifyIdentity.off("logout"); netlifyIdentity.off("close"); };
+    netlifyIdentity.on("close",  ()=>{ var c=netlifyIdentity.currentUser(); if(c&&isOk(c)){setUser(c);setError(null);} setLoading(false); });
+    var cur=netlifyIdentity.currentUser(); if(cur){ clearTimeout(t); if(isOk(cur))setUser(cur); else{netlifyIdentity.logout();setError("Domaine non autorisé.");} setLoading(false); }
+    return ()=>{ clearTimeout(t); ["init","login","logout","close"].forEach(e=>netlifyIdentity.off(e)); };
   },[]);
-  return <AuthContext.Provider value={{user,loading,error,logout}}>{children}</AuthContext.Provider>;
+  return <AuthCtx.Provider value={{user,loading,error,logout}}>{children}</AuthCtx.Provider>;
 }
-function useAuth() { return React.useContext(AuthContext); }
+function useAuth() { return React.useContext(AuthCtx); }
 
-// ─── LOGIN ────────────────────────────────────────────────────────
 function LoginPage() {
   const {error}=useAuth();
   return <div style={{height:"100vh",display:"grid",gridTemplateColumns:"1fr 1fr"}}>
@@ -276,7 +220,7 @@ function ProtectedRoute({children}) {
 function NavBar({activeTab,onTabChange,postCount,insightCount}) {
   const auth=useAuth();
   const initials=auth.user?.email?.[0]?.toUpperCase()||"?";
-  const displayName=auth.user?.user_metadata?.full_name||auth.user?.email||"Profil";
+  const displayName=auth.user?.user_metadata?.full_name||auth.user?.email||"";
   return <nav style={{height:56,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,background:"#fff",flexShrink:0}}>
     <div style={{display:"flex",alignItems:"center",gap:9,flexShrink:0,marginRight:10}}>
       <div style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
@@ -308,46 +252,38 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
   const [tonalites, setTonalites] = useState(profile?.tonalites||[]);
   const [eviter,    setEviter]    = useState(profile?.eviter||"");
   const [loading,   setLoading]   = useState(false);
-
   useEffect(()=>{ setName(profile?.name||""); setVision(profile?.vision||""); setContext(profile?.context||""); setAudience(profile?.audience||""); setObjectif(profile?.objectif||""); setTonalites(profile?.tonalites||[]); setEviter(profile?.eviter||""); },[profile]);
-
-  const filledCount = [name,vision,context,audience,objectif,tonalites.length>0,eviter].filter(Boolean).length;
-  const completion  = Math.round((filledCount/7)*100);
-  const isValid     = name.trim()&&vision.trim()&&context.trim();
+  const filled = [name,vision,context,audience,objectif,tonalites.length>0,eviter].filter(Boolean).length;
+  const pct    = Math.round((filled/7)*100);
+  const isValid= name.trim()&&vision.trim()&&context.trim();
   function toggleTon(t) { setTonalites(p=>p.includes(t)?p.filter(x=>x!==t):p.length<3?[...p,t]:p); }
-  function buildProfile() { return {name,vision,context,audience,objectif,tonalites,eviter}; }
-
-  async function handleGenAxes() {
+  function buildP()     { return {name,vision,context,audience,objectif,tonalites,eviter}; }
+  async function genAxes() {
     if (!isValid) return;
-    onSave(buildProfile()); setLoading(true);
+    onSave(buildP()); setLoading(true);
     try {
-      const prompt = `Tu dois générer 6 axes de contenu LinkedIn pour cette personne.
-
+      const prompt=`Génère 6 axes de contenu LinkedIn pour cette personne.
 PROFIL :
 - Nom : ${name}
-- Vision personnelle : ${vision}
-- Contexte : ${context}${audience ? "\n- Audience cible : "+audience : ""}${objectif ? "\n- Objectif : "+objectif : ""}${tonalites.length ? "\n- Tonalités : "+tonalites.join(", ") : ""}
+- Vision : ${vision}
+- Contexte : ${context}${audience?"\n- Audience : "+audience:""}${objectif?"\n- Objectif : "+objectif:""}${tonalites.length?"\n- Tonalités : "+tonalites.join(", "):""}
 
-RÈGLE ABSOLUE : Les 6 axes DOIVENT découler directement de la vision et du contexte ci-dessus. Ne propose pas d'axes génériques sur l'IA, la blockchain ou les tendances tech sauf si c'est explicitement dans la vision. Chaque axe doit refléter ce que cette personne spécifique pense, vit et défend.
-
-Génère 6 axes thématiques précis, ancrés dans cette vision, avec un titre accrocheur et une description concrète.`;
-      const sys = 'Réponds UNIQUEMENT en JSON valide, sans texte avant ou après. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.';
+RÈGLE ABSOLUE : les axes DOIVENT découler directement de cette vision et ce contexte. Ne propose rien de générique. Chaque axe reflète ce que cette personne spécifique pense et défend.`;
+      const sys='Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.';
       const parsed=parseJSON(await callClaude(prompt,sys,900));
-      if (parsed?.axes?.length) { onAxesGenerated({id:uid(),label:"Génération — "+toDay(),createdAt:toDay(),axes:parsed.axes.map(a=>({...a,id:uid()}))}); }
-      else showToast("⚠️ Format inattendu, réessayez");
+      if (parsed?.axes?.length) onAxesGenerated({id:uid(),label:"Génération — "+toDay(),createdAt:toDay(),axes:parsed.axes.map(a=>({...a,id:uid()}))});
+      else showToast("⚠️ Format inattendu");
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
-  const audienceTags = audience?audience.split(",").map(s=>s.trim()).filter(Boolean):[];
-
+  const audienceTags=audience?audience.split(",").map(s=>s.trim()).filter(Boolean):[];
   return <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr",overflow:"hidden"}}>
     <div style={{padding:"1.75rem",background:"#fff",borderRight:"0.5px solid "+C.gray200,overflowY:"auto"}}>
       <p style={{fontSize:17,fontWeight:500,color:C.gray900,marginBottom:4}}>Votre profil</p>
       <p style={{fontSize:12,color:C.gray400,marginBottom:20,lineHeight:1.5}}>Ces informations personnalisent tous vos contenus générés.</p>
       <p style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10,paddingBottom:5,borderBottom:"0.5px solid "+C.gray200}}>Identité</p>
       <Field label="Nom ou marque" value={name} onChange={setName} placeholder="Ex : Nicolas Dupont"/>
-      <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : Transformer les ESN en acteurs de l'IA" rows={4}/>
+      <Field label="Vision" value={vision} onChange={setVision} placeholder="Ex : La transparence salariale devrait être la norme" rows={4}/>
       <Field label="Contexte" value={context} onChange={setContext} placeholder="Ex : CEO d'une ESN de 80 consultants, 10 ans d'expérience…" rows={5}/>
       <p style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10,paddingBottom:5,borderBottom:"0.5px solid "+C.gray200,marginTop:16}}>Stratégie</p>
       <Field label="Audience cible" value={audience} onChange={setAudience} placeholder="Ex : DSI, dirigeants de PME, DRH"/>
@@ -364,8 +300,8 @@ Génère 6 axes thématiques précis, ancrés dans cette vision, avec un titre a
       </div>
       <Field label={<span>Mots-clés à éviter <span style={{fontWeight:400,color:C.gray400}}>(optionnel)</span></span>} value={eviter} onChange={setEviter} placeholder="Ex : synergies, disruptif, paradigme…"/>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:4}}>
-        <Btn onClick={()=>{ if(isValid) onSave(buildProfile()); }} disabled={!isValid}>Sauvegarder</Btn>
-        <Btn variant="secondary" onClick={handleGenAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
+        <Btn onClick={()=>{ if(isValid) onSave(buildP()); }} disabled={!isValid}>Sauvegarder</Btn>
+        <Btn variant="secondary" onClick={genAxes} disabled={!isValid||loading}>{loading?"Génération…":"Générer mes axes →"}</Btn>
       </div>
     </div>
     <div style={{padding:"1.75rem",background:C.gray50,display:"flex",flexDirection:"column",gap:14,overflowY:"auto"}}>
@@ -380,15 +316,14 @@ Génère 6 axes thématiques précis, ancrés dans cette vision, avec un titre a
       <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:"12px 14px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <p style={{fontSize:12,fontWeight:500,color:C.gray900}}>Profil complété</p>
-          <span style={{fontSize:14,fontWeight:500,color:completion>=80?C.green:completion>=50?C.amber:C.red}}>{completion}%</span>
+          <span style={{fontSize:14,fontWeight:500,color:pct>=80?C.green:pct>=50?C.amber:C.red}}>{pct}%</span>
         </div>
         <div style={{height:6,background:C.gray100,borderRadius:10,marginBottom:8}}>
-          <div style={{height:6,borderRadius:10,width:completion+"%",background:completion>=80?C.green:completion>=50?C.amber:C.red,transition:"width 0.3s"}}/>
+          <div style={{height:6,borderRadius:10,width:pct+"%",background:pct>=80?C.green:pct>=50?C.amber:C.red,transition:"width 0.3s"}}/>
         </div>
-        <p style={{fontSize:11,color:C.gray400}}>{completion===100?"Profil complet ✓":"Renseignez tous les champs pour un profil optimal"}</p>
+        <p style={{fontSize:11,color:C.gray400}}>{pct===100?"Profil complet ✓":"Renseignez tous les champs pour un profil optimal"}</p>
       </div>
-      <p style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em"}}>Comment ça marche</p>
-      {[{n:"1",t:"Remplissez votre profil",d:"Identité + stratégie. 5 minutes chrono."},{n:"2",t:"Vos axes sont générés",d:"6 thèmes calibrés sur votre audience et objectif."},{n:"3",t:"Créez et planifiez",d:"Roadmap, posts, analyse, optimisation."}].map(s=><div key={s.n} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:"10px 12px",display:"flex",gap:10,alignItems:"flex-start"}}>
+      {[{n:"1",t:"Remplissez votre profil",d:"Identité + stratégie. 5 minutes chrono."},{n:"2",t:"Vos axes sont générés",d:"6 thèmes calibrés sur votre vision."},{n:"3",t:"Créez et planifiez",d:"Roadmap, posts, analyse, optimisation."}].map(s=><div key={s.n} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:"10px 12px",display:"flex",gap:10,alignItems:"flex-start"}}>
         <div style={{width:22,height:22,borderRadius:"50%",background:C.navyLight,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:10,fontWeight:500,color:C.navy}}>{s.n}</span></div>
         <div><p style={{fontSize:12,fontWeight:500,color:C.gray900,marginBottom:2}}>{s.t}</p><p style={{fontSize:11,color:C.gray400,lineHeight:1.4}}>{s.d}</p></div>
       </div>)}
@@ -406,7 +341,6 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
   const [marked,  setMarked]  = useState([]);
   const [filter,  setFilter]  = useState("all");
   const [loading, setLoading] = useState(false);
-
   const allAxes    = axesSessions.flatMap(s=>s.axes);
   const usedIds    = new Set(selectedAxes.map(a=>a.id));
   const favIds     = new Set(favAxes);
@@ -415,16 +349,14 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
   const filtered   = uniqueAxes.filter(a=>{
     if(filter==="fav")  return favIds.has(a.id);
     if(filter==="used") return usedIds.has(a.id);
-    if(filter==="new")  return !usedIds.has(a.id)&&!favIds.has(a.id);
     return true;
   });
-
   async function regen(count,toKeep) {
     if (!profile) { showToast("⚠️ Complétez votre profil d'abord"); return; }
     setLoading(true);
     try {
-      const prompt="Profil : "+profile.name+" — "+profile.vision+"\nAxes existants à ne pas reproduire : "+JSON.stringify(toKeep.map(a=>a.title))+"\nGénère "+count+" nouveaux axes LinkedIn différents en français.";
-      const sys='Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement '+count+' items.';
+      const prompt=`Génère ${count} nouveaux axes LinkedIn différents pour : ${profile.name} — ${profile.vision}\nAxes existants à ne pas reproduire : ${JSON.stringify(toKeep.map(a=>a.title))}\nLes axes doivent être ancrés dans cette vision spécifique.`;
+      const sys=`Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement ${count} items.`;
       const parsed=parseJSON(await callClaude(prompt,sys,900));
       if (parsed?.axes?.length) {
         const withIds=parsed.axes.map(a=>({...a,id:uid()}));
@@ -434,24 +366,20 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return <div style={{height:"calc(100vh - 56px)",display:"flex",flexDirection:"column"}}>
-    {/* Toolbar filtres */}
     <div style={{height:44,background:"#fff",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:6,flexShrink:0}}>
       <Pill active={filter==="all"}  onClick={()=>setFilter("all")}>Tous ({uniqueAxes.length})</Pill>
       <Pill active={filter==="fav"}  onClick={()=>setFilter("fav")}>Favoris ★ {favAxes.length}</Pill>
       <Pill active={filter==="used"} onClick={()=>setFilter("used")}>Sélectionnés ✓ {selectedAxes.length}</Pill>
-
       <div style={{marginLeft:"auto",display:"flex",gap:6}}>
         <Pill warn={mode==="replace"} onClick={()=>{ setMode(m=>m==="replace"?"select":"replace"); setMarked([]); }}>{mode==="replace"?"✕ Annuler":"↺ Remplacer"}</Pill>
         <Pill onClick={()=>regen(6,[])} disabled={loading}>{loading?"…":"↺ Regénérer"}</Pill>
       </div>
     </div>
-    {mode==="replace"&&marked.length>0&&<div style={{background:"#FEF3C7",border:"0.5px solid "+C.amber,padding:"8px 1.25rem",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+    {mode==="replace"&&marked.length>0&&<div style={{background:"#FEF3C7",padding:"8px 1.25rem",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
       <span style={{fontSize:12,color:"#92400E"}}>{marked.length} axe(s) à remplacer</span>
-      <Pill warn onClick={()=>regen(marked.length,uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))} style={{marginLeft:"auto"}}>{loading?"…":"↺ Remplacer "+marked.length+" axe(s)"}</Pill>
+      <Pill warn onClick={()=>regen(marked.length,uniqueAxes.filter(a=>!marked.find(x=>x.id===a.id)))}>{loading?"…":"↺ Remplacer"}</Pill>
     </div>}
-    {/* Grille */}
     <div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",background:C.gray50}}>
       {filtered.length===0?<Empty icon="🎯" text="Aucun axe trouvé."/>:
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:10}}>
@@ -476,106 +404,102 @@ function AxesTab({axesSessions,favAxes,selectedAxes,onToggleAxis,onToggleFav,onD
         </div>
       }
     </div>
-    {/* Footer CTA — plus visible */}
-    {selectedAxes.length>0&&mode==="select"&&(
-      <div style={{background:"#fff",borderTop:"2px solid "+C.navy,padding:"16px 1.25rem",display:"flex",alignItems:"center",gap:16,flexShrink:0,boxShadow:"0 -4px 12px rgba(30,58,95,0.08)"}}>
-        <div style={{display:"flex",flexDirection:"column",gap:2}}>
-          <span style={{fontSize:13,fontWeight:500,color:C.gray900}}>{selectedAxes.length} axe{selectedAxes.length>1?"s":""} sélectionné{selectedAxes.length>1?"s":""}</span>
-          <span style={{fontSize:11,color:C.navy}}>{selectedAxes.slice(0,3).map(a=>a.title).join(" · ")}{selectedAxes.length>3?" …":""}</span>
-        </div>
-        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-          <Btn variant="ghost" onClick={()=>{}}>→ Créer un post</Btn>
-          <Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn>
-        </div>
+    {selectedAxes.length>0&&mode==="select"&&<div style={{background:"#fff",borderTop:"2px solid "+C.navy,padding:"16px 1.25rem",display:"flex",alignItems:"center",gap:16,flexShrink:0,boxShadow:"0 -4px 12px rgba(30,58,95,0.08)"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:2}}>
+        <span style={{fontSize:13,fontWeight:500,color:C.gray900}}>{selectedAxes.length} axe{selectedAxes.length>1?"s":""} sélectionné{selectedAxes.length>1?"s":""}</span>
+        <span style={{fontSize:11,color:C.navy}}>{selectedAxes.slice(0,3).map(a=>a.title).join(" · ")}{selectedAxes.length>3?" …":""}</span>
       </div>
-    )}
+      <div style={{marginLeft:"auto"}}><Btn onClick={onGoRoadmap}>→ Générer la roadmap</Btn></div>
+    </div>}
   </div>;
 }
 
 // ─── ROADMAP ──────────────────────────────────────────────────────
-function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadmap,onDeleteRoadmap,onRoadmapGenerated,onGoCreer,pubWeeks,selectedAxes,profile,showToast}) {
+function RoadmapTab({roadmaps,activeRmId,selectedAxes,profile,pubWeeks,showToast,
+  onSetActive,onNewRoadmap,onRenameRoadmap,onDeleteRoadmap,
+  onRoadmapGenerated,onRoadmapUpdated,onWeekUpdated,onGoCreer}) {
+
   const [dur,         setDur]         = useState(6);
   const [openQ,       setOpenQ]       = useState([0]);
   const [loading,     setLoading]     = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [editingWeek, setEditingWeek] = useState(null); // {week, theme, hook, axis, tone, style}
-  const [regenWeek,   setRegenWeek]   = useState(null); // id de la semaine en cours de regén
+  const [editWeek,    setEditWeek]    = useState(null);
+  const [regenId,     setRegenId]     = useState(null);
 
-  const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0];
+  const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0]||null;
   const weeks    = activeRm?.weeks||[];
-  const monthSet = []; weeks.forEach(w=>{ if(!monthSet.includes(w.month)) monthSet.push(w.month); });
+  const monthSet = [];
+  weeks.forEach(w=>{ if(!monthSet.includes(w.month)) monthSet.push(w.month); });
   const quarters = [];
   for (let i=0;i<monthSet.length;i+=3) {
-    const qM=monthSet.slice(i,i+3), qW=weeks.filter(w=>qM.includes(w.month));
-    quarters.push({index:i/3,months:qM,weeks:qW,done:qW.filter(w=>pubWeeks.has(w.week)).length});
+    const qM=monthSet.slice(i,i+3);
+    const qW=weeks.filter(w=>qM.includes(w.month));
+    quarters.push({index:i/3, months:qM, weeks:qW, done:qW.filter(w=>pubWeeks.has(Number(w.week))).length});
   }
 
   async function handleGen() {
     if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
     setLoading(true); showToast("⏳ Génération en cours…");
     try {
-      const axesList = selectedAxes.map(a=>`- ${a.title} : ${a.description}`).join("\n");
-      const prompt = `Tu es un expert en stratégie de contenu LinkedIn. Génère une roadmap éditoriale de ${dur} mois (${dur*4} semaines) pour cette personne.
+      const axesList=selectedAxes.map(a=>`- ${a.title} : ${a.description}`).join("\n");
+      const prompt=`Tu es expert en stratégie de contenu LinkedIn. Génère une roadmap éditoriale de ${dur} mois (${dur*4} semaines).
 
 PROFIL :
 - Nom : ${profile?.name||""}
 - Vision : ${profile?.vision||""}
-- Contexte : ${profile?.context||""}${profile?.audience ? "\n- Audience : "+profile.audience : ""}
+- Contexte : ${profile?.context||""}${profile?.audience?"\n- Audience : "+profile.audience:""}
 
-AXES SÉLECTIONNÉS (utilise UNIQUEMENT ces axes, répartis équitablement) :
+AXES (utilise UNIQUEMENT ces axes, répartis équitablement) :
 ${axesList}
 
-EXIGENCES STRICTES pour chaque semaine :
-- "theme" : titre accrocheur et précis en français (ex: "Pourquoi j'ai arrêté les réunions du lundi" ou "Ce que m'a appris mon premier licenciement"), JAMAIS générique
-- "hook" : première ligne du post, percutante, qui donne envie de lire (max 15 mots)
-- "angle" : l'angle éditorial précis (ex: "storytelling personnel", "opinion tranchée", "contre-intuitive")
-- "detail" : une phrase qui décrit le contenu concret du post
-- "axis" : reprend EXACTEMENT le titre d'un des axes sélectionnés ci-dessus
-- "tone" : un parmi Inspirant/Éducatif/Provocateur/Authentique/Expert
-- "style" : un parmi Storytelling/Liste Tips/Opinion tranchée/Étude de cas/Question ouverte
+Pour chaque semaine :
+- "theme" : titre accrocheur et précis en français (ex: "Pourquoi j'ai arrêté les réunions du lundi")
+- "hook" : première ligne du post, percutante, max 15 mots
+- "angle" : angle éditorial précis
+- "detail" : description concrète du contenu du post
+- "axis" : titre EXACT d'un des axes ci-dessus
+- "tone" : Inspirant/Éducatif/Provocateur/Authentique/Expert
+- "style" : Storytelling/Liste Tips/Opinion tranchée/Étude de cas/Question ouverte
 - "month" : Mois 1, Mois 2, etc.
-- "week" : numéro de semaine (1 à ${dur*4})
+- "week" : numéro (1 à ${dur*4})
 
-Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.`;
-      const sys = `{"weeks":[{"week":1,"month":"Mois 1","theme":"Titre accrocheur précis","hook":"Première ligne percutante","angle":"angle éditorial","detail":"Description concrète du contenu","axis":"Axe exact","tone":"Inspirant","style":"Storytelling"}]}`;
+Réponds UNIQUEMENT avec un objet JSON valide.`;
+      const sys=`{"weeks":[{"week":1,"month":"Mois 1","theme":"Titre accrocheur","hook":"Première ligne percutante","angle":"angle éditorial","detail":"Description concrète","axis":"Axe exact","tone":"Inspirant","style":"Storytelling"}]}`;
       let parsed=parseJSON(await callClaude(prompt,sys,2500));
       if (parsed&&!parsed.weeks&&Array.isArray(parsed)) parsed={weeks:parsed};
-      if (parsed?.weeks?.length) {
-        // Toujours remplir la roadmap active si elle existe (vide ou non = regénération)
-        // Créer une nouvelle seulement s'il n'y a aucune roadmap active
-        if (activeRm) {
-          onRoadmapUpdated(activeRm.id, parsed.weeks, dur);
-        } else {
-          onRoadmapGenerated({id:uid(),name:"Roadmap "+dur+"m — "+toDay(),createdAt:toDay(),weeks:parsed.weeks,dur});
-        }
-      } else showToast("⚠️ Format inattendu");
+      if (!parsed?.weeks?.length) { showToast("⚠️ Format inattendu"); setLoading(false); return; }
+      if (activeRm) {
+        onRoadmapUpdated(activeRm.id, parsed.weeks, dur);
+      } else {
+        onRoadmapGenerated({id:uid(), name:"Roadmap "+dur+"m — "+toDay(), createdAt:toDay(), weeks:parsed.weeks, dur});
+      }
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
 
   async function handleRegenWeek(w) {
-    setRegenWeek(w.week);
+    setRegenId(w.week);
     try {
-      const prompt = `Regénère UNIQUEMENT cette semaine de roadmap LinkedIn.
-
+      const prompt=`Regénère cette semaine de roadmap LinkedIn.
 PROFIL : ${profile?.name||""} — ${profile?.vision||""}
-AXE : ${w.axis}
-TON : ${w.tone}
-STYLE : ${w.style}
-
-Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNIQUEMENT en JSON.`;
-      const sys = `{"theme":"Nouveau titre accrocheur","hook":"Nouvelle première ligne","angle":"nouvel angle","detail":"Nouveau contenu concret","axis":"${w.axis}","tone":"${w.tone}","style":"${w.style}","week":${w.week},"month":"${w.month}"}`;
-      const parsed = parseJSON(await callClaude(prompt,sys,400));
-      if (parsed?.theme) {
-        onWeekUpdated({...w,...parsed,week:w.week,month:w.month});
-        showToast("✓ Carte regénérée");
-      }
+AXE : ${w.axis} | TON : ${w.tone} | STYLE : ${w.style}
+Génère un nouveau thème et hook différents. Réponds UNIQUEMENT en JSON.`;
+      const sys=`{"theme":"Nouveau titre","hook":"Nouveau hook","angle":"nouvel angle","detail":"Nouveau contenu","axis":"${w.axis}","tone":"${w.tone}","style":"${w.style}","week":${w.week},"month":"${w.month}"}`;
+      const parsed=parseJSON(await callClaude(prompt,sys,400));
+      if (parsed?.theme) { onWeekUpdated({...w,...parsed, week:w.week, month:w.month}); showToast("✓ Carte regénérée"); }
+      else showToast("⚠️ Format inattendu");
     } catch(e) { showToast("⚠️ "+e.message); }
-    setRegenWeek(null);
+    setRegenId(null);
+  }
+
+  function saveEditWeek() {
+    if (!editWeek) return;
+    onWeekUpdated(editWeek);
+    setEditWeek(null);
+    showToast("✓ Carte mise à jour");
   }
 
   return <div style={{display:"grid",gridTemplateColumns:sidebarOpen?"220px 1fr":"44px 1fr",height:"calc(100vh - 56px)",transition:"grid-template-columns 0.2s"}}>
-    {/* Sidebar */}
     <div style={{background:C.gray50,borderRight:"0.5px solid "+C.gray200,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
       <button onClick={()=>setSidebarOpen(o=>!o)} style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:sidebarOpen?"0 10px 8px":"0 auto 8px",border:"none"}}>
         <span style={{color:"#fff",fontSize:14,transform:sidebarOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>›</span>
@@ -585,8 +509,6 @@ Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNI
       </div>)}
       {sidebarOpen?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>:<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:"0.5px dashed "+C.gray200,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>}
     </div>
-
-    {/* Main */}
     <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{height:48,background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
         {activeRm&&<React.Fragment><span style={{fontSize:12,fontWeight:500,color:C.gray900}}>{activeRm.name}</span><span style={{fontSize:10,padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:20,fontWeight:500}}>Active</span></React.Fragment>}
@@ -599,13 +521,12 @@ Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNI
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:6}}>
           {activeRm&&<Btn sm variant="secondary" onClick={()=>onRenameRoadmap(activeRm.id)}>Renommer</Btn>}
-          <Btn sm onClick={handleGen} disabled={loading||!selectedAxes.length}>{loading?"Génération…":activeRm?.weeks?.length?"↺ Regénérer":"→ Générer"}</Btn>
+          <Btn sm onClick={handleGen} disabled={loading||!selectedAxes.length}>{loading?"Génération…":weeks.length?"↺ Regénérer":"→ Générer"}</Btn>
         </div>
       </div>
-
       <div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",background:C.gray50}}>
         {!selectedAxes.length&&<div style={{background:"#FEF3C7",border:"0.5px solid "+C.amber,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400E"}}>⚠ Sélectionnez d'abord vos axes.</div>}
-        {!(activeRm?.weeks?.length)?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={selectedAxes.length?"Générer":null} onBtn={selectedAxes.length?handleGen:null}/>:
+        {!weeks.length?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={selectedAxes.length?"Générer":null} onBtn={selectedAxes.length?handleGen:null}/>:
           quarters.map((q,qi)=>{
             const isOpen=openQ.includes(qi);
             return <div key={qi} style={{marginBottom:8}}>
@@ -613,67 +534,61 @@ Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNI
                 <span style={{fontSize:12,fontWeight:500,color:C.navy}}>Trimestre {q.index+1}</span>
                 <span style={{fontSize:11,color:C.gray400}}>{q.months.join(" · ")}</span>
                 <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:12}}>
-                  {q.done>0&&<span style={{fontSize:11,color:C.green}}>{q.done} publié{q.done>1?"s":""}</span>}
+                  {q.done>0&&<span style={{fontSize:11,color:C.green}}>{q.done} post{q.done>1?"s":""} créé{q.done>1?"s":""}</span>}
                   <span style={{fontSize:12,color:C.gray400,transform:isOpen?"rotate(90deg)":"none",transition:"transform 0.15s"}}>›</span>
                 </div>
               </div>
               {isOpen&&<div style={{border:"0.5px solid "+C.navy,borderTop:"none",borderRadius:"0 0 9px 9px",padding:12,background:"#fff"}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                   {q.months.map(month=><div key={month}>
                     <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8,paddingBottom:5,borderBottom:"0.5px solid "+C.gray200}}>{month}</div>
                     {q.weeks.filter(w=>w.month===month).map(w=>{
-                      const isDone=pubWeeks.has(w.week);
-                      const isEditing=editingWeek?.week===w.week;
-                      const isRegening=regenWeek===w.week;
-                      return <div key={w.week} style={{border:"0.5px solid "+(isDone?C.green:C.gray200),borderRadius:8,marginBottom:8,background:isDone?"#F0FDF4":"#fff",overflow:"hidden"}}>
-                        {/* Header carte */}
-                        <div style={{padding:"8px 10px",borderBottom:"0.5px solid "+(isDone?C.green+"40":C.gray200)}}>
+                      const isDone=pubWeeks.has(Number(w.week));
+                      const isEdit=editWeek?.week===w.week;
+                      const isRegen=regenId===w.week;
+                      return <div key={w.week} style={{border:"0.5px solid "+(isDone?"#10B981":C.gray200),borderRadius:8,marginBottom:8,background:isDone?"#F0FDF4":"#fff",overflow:"hidden"}}>
+                        <div style={{padding:"8px 10px",borderBottom:"0.5px solid "+(isDone?"#10B98140":C.gray200)}}>
                           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                             <span style={{fontSize:10,color:C.gray400}}>Sem. {w.week}</span>
-                            <span style={{padding:"1px 6px",background:isDone?"#D1FAE5":C.navyLight,color:isDone?C.green:C.navy,borderRadius:4,fontSize:9,fontWeight:500}}>{isDone?"✓ Post généré":w.axis}</span>
+                            <span style={{padding:"1px 6px",background:isDone?"#D1FAE5":C.navyLight,color:isDone?"#10B981":C.navy,borderRadius:4,fontSize:9,fontWeight:500}}>{isDone?"✓ Post créé":w.axis}</span>
                           </div>
-                          <p style={{fontSize:12,fontWeight:500,color:isDone?C.green:C.gray900,lineHeight:1.35}}>{w.theme}</p>
-                        </div>
-                        {/* Détail carte */}
-                        <div style={{padding:"8px 10px"}}>
-                          {w.hook&&<p style={{fontSize:11,color:C.navy,fontStyle:"italic",marginBottom:4,lineHeight:1.4}}>"{w.hook}"</p>}
+                          <p style={{fontSize:12,fontWeight:500,color:isDone?"#10B981":C.gray900,lineHeight:1.35,marginBottom:4}}>{w.theme}</p>
+                          {w.hook&&<p style={{fontSize:11,color:C.navy,fontStyle:"italic",lineHeight:1.4,marginBottom:3}}>"{w.hook}"</p>}
                           <p style={{fontSize:11,color:C.gray600,lineHeight:1.4,marginBottom:6}}>{w.detail||w.angle}</p>
-                          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+                          <div style={{display:"flex",gap:4,marginBottom:8}}>
                             <span style={{padding:"1px 6px",background:C.gray100,color:C.gray600,borderRadius:4,fontSize:9}}>{w.tone}</span>
                             <span style={{padding:"1px 6px",background:C.gray100,color:C.gray600,borderRadius:4,fontSize:9}}>{w.style}</span>
                           </div>
-                          {/* Actions */}
-                          {!isDone&&<div style={{display:"flex",gap:5}}>
-                            <button onClick={()=>setEditingWeek(isEditing?null:{...w})} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"0.5px solid "+C.gray200,background:isEditing?C.navyLight:"#fff",color:isEditing?C.navy:C.gray600,cursor:"pointer",fontFamily:"inherit"}}>{isEditing?"✕ Fermer":"✏ Modifier"}</button>
-                            <button onClick={()=>handleRegenWeek(w)} disabled={isRegening} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"0.5px solid "+C.gray200,background:"#fff",color:C.gray600,cursor:"pointer",fontFamily:"inherit",opacity:isRegening?0.5:1}}>{isRegening?"…":"↺ Regén."}</button>
-                            <button onClick={()=>onGoCreer(w)} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"none",background:C.navy,color:"#fff",cursor:"pointer",fontFamily:"inherit"}}>✦ Créer</button>
-                          </div>}
                         </div>
-                        {/* Panneau édition inline */}
-                        {isEditing&&<div style={{padding:"8px 10px",background:C.gray50,borderTop:"0.5px solid "+C.gray200}}>
+                        {!isDone&&<div style={{padding:"8px 10px",display:"flex",gap:5}}>
+                          <button onClick={()=>setEditWeek(isEdit?null:{...w})} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"0.5px solid "+C.gray200,background:isEdit?C.navyLight:"#fff",color:isEdit?C.navy:C.gray600,cursor:"pointer",fontFamily:"inherit"}}>{isEdit?"✕ Fermer":"✏ Modifier"}</button>
+                          <button onClick={()=>handleRegenWeek(w)} disabled={isRegen} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"0.5px solid "+C.gray200,background:"#fff",color:C.gray600,cursor:"pointer",fontFamily:"inherit",opacity:isRegen?0.5:1}}>{isRegen?"…":"↺ Regén."}</button>
+                          <button onClick={()=>onGoCreer(w)} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"none",background:C.navy,color:"#fff",cursor:"pointer",fontFamily:"inherit"}}>✦ Créer</button>
+                        </div>}
+                        {isEdit&&<div style={{padding:"8px 10px",background:C.gray50,borderTop:"0.5px solid "+C.gray200}}>
                           <div style={{marginBottom:6}}>
                             <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Thème</div>
-                            <input value={editingWeek.theme} onChange={e=>setEditingWeek(p=>({...p,theme:e.target.value}))} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
+                            <input value={editWeek.theme||""} onChange={e=>setEditWeek(p=>({...p,theme:e.target.value}))} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
                           </div>
                           <div style={{marginBottom:6}}>
                             <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Hook</div>
-                            <input value={editingWeek.hook||""} onChange={e=>setEditingWeek(p=>({...p,hook:e.target.value}))} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
+                            <input value={editWeek.hook||""} onChange={e=>setEditWeek(p=>({...p,hook:e.target.value}))} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
                           </div>
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
                             <div>
                               <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Ton</div>
-                              <select value={editingWeek.tone} onChange={e=>setEditingWeek(p=>({...p,tone:e.target.value}))} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}>
+                              <select value={editWeek.tone||""} onChange={e=>setEditWeek(p=>({...p,tone:e.target.value}))} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}>
                                 {TONES.map(t=><option key={t}>{t}</option>)}
                               </select>
                             </div>
                             <div>
                               <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Style</div>
-                              <select value={editingWeek.style} onChange={e=>setEditingWeek(p=>({...p,style:e.target.value}))} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}>
+                              <select value={editWeek.style||""} onChange={e=>setEditWeek(p=>({...p,style:e.target.value}))} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}>
                                 {STYLES.map(s=><option key={s}>{s}</option>)}
                               </select>
                             </div>
                           </div>
-                          <Btn sm full onClick={()=>{ onWeekUpdated({...w,...editingWeek}); setEditingWeek(null); showToast("✓ Carte mise à jour"); }}>Enregistrer</Btn>
+                          <Btn sm full onClick={saveEditWeek}>Enregistrer</Btn>
                         </div>}
                       </div>;
                     })}
@@ -688,67 +603,55 @@ Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNI
   </div>;
 }
 
-// ─── GÉNÉRER — 2 colonnes ─────────────────────────────────────────
+// ─── GÉNÉRER ──────────────────────────────────────────────────────
 function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setPost,onGoInterview,onGoAnalyser,onGoOptimiser,onMarkDone}) {
-  const [axis,    setAxis]    = useState(prefill?.axis||selectedAxes[0]||null);
-  const [tone,    setTone]    = useState(prefill?.tone||"");
-  const [style,   setStyle]   = useState(prefill?.style||"");
-  const [theme,   setTheme]   = useState(prefill?.roadmapSug?.theme||"");
-  const [hook,    setHook]    = useState(prefill?.roadmapSug?.hook||"");
+  const [axis,    setAxis]    = useState(()=>prefill?.axis||selectedAxes[0]||null);
+  const [tone,    setTone]    = useState(()=>prefill?.tone||"");
+  const [style,   setStyle]   = useState(()=>prefill?.style||"");
+  const [theme,   setTheme]   = useState(()=>prefill?.roadmapSug?.theme||"");
+  const [hook,    setHook]    = useState(()=>prefill?.roadmapSug?.hook||"");
   const [loading, setLoading] = useState(false);
-
-  useEffect(()=>{
-    if(prefill?.axis)  setAxis(prefill.axis);
-    if(prefill?.tone)  setTone(prefill.tone);
-    if(prefill?.style) setStyle(prefill.style);
-    if(prefill?.roadmapSug?.theme) setTheme(prefill.roadmapSug.theme);
-    if(prefill?.roadmapSug?.hook)  setHook(prefill.roadmapSug.hook);
-  },[prefill]);
 
   async function handleGen() {
     if (!axis||!tone||!style||!profile) return;
     setLoading(true);
     try {
       const extras=(profile.audience?"\nAudience : "+profile.audience:"")+(profile.objectif?"\nObjectif : "+profile.objectif:"")+(profile.tonalites?.length?"\nTonalités : "+profile.tonalites.join(", "):"")+(profile.eviter?"\nMots à éviter : "+profile.eviter:"");
-      const roadmapCtx = theme
-        ? `\n\nCONTEXTE ÉDITORIAL — respecte impérativement :\n- Thème : ${theme}\n${hook?`- Commence le post par ce hook : "${hook}"\n`:""}- Ton : ${tone}\n- Style : ${style}\nLe post doit s'appuyer directement sur ce thème${hook?" et commencer par ce hook":""}.`
-        : "";
-      const prompt=`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}${extras}\nAxe : ${axis.title} — ${axis.description}${roadmapCtx}\nTon : ${tone}\nStyle : ${style}\n\nGénère le post LinkedIn complet.`;
-      const txt = await callClaude(prompt,LINKEDIN_RULES,1200);
+      const ctx=theme?`\n\nCONTEXTE ÉDITORIAL — respecte impérativement :\n- Thème : ${theme}\n${hook?`- Commence le post par ce hook exact : "${hook}"\n`:""}- Ton : ${tone}\n- Style : ${style}`:"";
+      const prompt=`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}${extras}\nAxe : ${axis.title} — ${axis.description}\nTon : ${tone}\nStyle : ${style}${ctx}\n\nGénère le post LinkedIn complet.`;
+      const txt=await callClaude(prompt,LINKEDIN_RULES,1200);
       setPost(txt);
-      // Marquer la carte roadmap comme "post généré" si on vient d'une roadmap
-      if (prefill?.roadmapSug && onMarkDone) onMarkDone(prefill.roadmapSug.week);
+      if (prefill?.roadmapSug?.week && onMarkDone) onMarkDone(Number(prefill.roadmapSug.week));
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
 
   return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"100%",overflow:"hidden"}}>
-    {/* Colonne gauche */}
     <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{flex:1,overflowY:"auto",padding:"1.25rem",display:"flex",flexDirection:"column",gap:14}}>
         <div>
-          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Axe</div>
+          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>Axe</div>
           {selectedAxes.length>0?selectedAxes.map(a=><div key={a.id} onClick={()=>setAxis(a)} style={{padding:"8px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:"1.5px solid "+(axis?.id===a.id?C.navy:C.gray200),background:axis?.id===a.id?C.navyLight:"#fff",fontWeight:axis?.id===a.id?500:400,color:axis?.id===a.id?C.navy:C.gray900,marginBottom:5}}>{a.emoji} {a.title}</div>):<p style={{fontSize:12,color:C.gray400}}>Aucun axe sélectionné.</p>}
         </div>
         <div>
-          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Ton</div>
+          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>Ton</div>
           {TONES.map(t=><Tag key={t} label={t} active={tone===t} onClick={()=>setTone(t)}/>)}
         </div>
         <div>
-          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Style</div>
+          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>Style</div>
           {STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}
         </div>
-        {/* Champs contexte éditorial — pré-remplis depuis roadmap ou libres */}
         <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:14}}>
-          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>
-            Contexte éditorial <span style={{fontSize:9,color:C.green,fontWeight:400,textTransform:"none",letterSpacing:0}}>{prefill?.roadmapSug?"• depuis roadmap":""}</span>
+          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+            Contexte éditorial
+            {prefill?.roadmapSug&&<span style={{fontSize:9,color:C.green,fontWeight:500,background:C.green+"18",padding:"1px 6px",borderRadius:4}}>depuis roadmap</span>}
           </div>
-          <div style={{marginBottom:10}}>
+          <div style={{marginBottom:8}}>
             <div style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Thème / idée</div>
             <input value={theme} onChange={e=>setTheme(e.target.value)} placeholder="Ex : Pourquoi j'ai arrêté les réunions du lundi" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+(theme?C.navyMid:C.gray200),fontSize:12,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
           </div>
           <div>
-            <div style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Hook suggéré <span style={{fontWeight:400,color:C.gray400}}>(optionnel)</span></div>
+            <div style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Hook <span style={{fontWeight:400,color:C.gray400}}>(optionnel)</span></div>
             <input value={hook} onChange={e=>setHook(e.target.value)} placeholder="Ex : J'ai fait une erreur qui m'a coûté 2 associés." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+(hook?C.navyMid:C.gray200),fontSize:12,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
           </div>
         </div>
@@ -757,13 +660,12 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setP
         <Btn onClick={handleGen} disabled={!axis||!tone||!style||loading} full>{loading?"Génération…":"✦ Générer le post"}</Btn>
       </div>
     </div>
-    {/* Colonne droite */}
     <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,fontWeight:500}}>Post généré</span>{post&&<CharBadge n={post.length}/>}</div>
         {post&&<div style={{display:"flex",gap:12}}>
-          <InlineBtn onClick={()=>navigator.clipboard.writeText(post)} color={C.navy}>Copier</InlineBtn>
-          <InlineBtn onClick={()=>{onSavePost({content:post,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} color={C.green}>💾 Sauver</InlineBtn>
+          <IBtn onClick={()=>navigator.clipboard.writeText(post)} color={C.navy}>Copier</IBtn>
+          <IBtn onClick={()=>{onSavePost({content:post,axis:axis?.title||"",tone,style});showToast("✓ Post sauvegardé");}} color={C.green}>💾 Sauver</IBtn>
         </div>}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"1.5rem 2.5rem"}}>
@@ -781,58 +683,33 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setP
 
 // ─── INTERVIEW ────────────────────────────────────────────────────
 function InterviewTab({basePost,setBasePost,enriched,setEnriched,onSavePost,showToast,onGoAnalyser,onGoOptimiser}) {
-  const [questions, setQuestions] = useState([]);
-  const [answers,   setAnswers]   = useState({});
-  const [loadQ,     setLoadQ]     = useState(false);
-  const [loadE,     setLoadE]     = useState(false);
-  const [regenIdx,  setRegenIdx]  = useState(null);
-
-  async function handleGenQ() {
-    if (!basePost.trim()) return;
-    setLoadQ(true);
-    try {
-      const p=parseJSON(await callClaude("Post :\n"+basePost+"\n\nPose 3 questions courtes pour extraire le vécu de l'auteur.",'Réponds UNIQUEMENT en JSON valide. Format : {"questions":["Q1","Q2","Q3"]}',400));
-      if(p?.questions) { setQuestions(p.questions); setAnswers({}); }
-    } catch(e) { showToast("⚠️ "+e.message); }
+  const [questions,setQuestions]=useState([]);
+  const [answers,  setAnswers]  =useState({});
+  const [loadQ,    setLoadQ]    =useState(false);
+  const [loadE,    setLoadE]    =useState(false);
+  const [regenIdx, setRegenIdx] =useState(null);
+  async function genQ() {
+    if (!basePost.trim()) return; setLoadQ(true);
+    try { const p=parseJSON(await callClaude("Post :\n"+basePost+"\n\nPose 3 questions courtes pour extraire le vécu de l'auteur.",'Réponds UNIQUEMENT en JSON valide. Format : {"questions":["Q1","Q2","Q3"]}',400)); if(p?.questions){setQuestions(p.questions);setAnswers({});} } catch(e){showToast("⚠️ "+e.message);}
     setLoadQ(false);
   }
-
-  async function handleRegenQ(idx) {
+  async function regenQ(idx) {
     setRegenIdx(idx);
-    try {
-      const others=questions.filter((_,i)=>i!==idx);
-      const p=parseJSON(await callClaude("Post :\n"+basePost+"\nQuestions existantes : "+JSON.stringify(others)+"\n\nGénère 1 nouvelle question différente.",'Réponds UNIQUEMENT en JSON valide. Format : {"question":"..."}',200));
-      if(p?.question) setQuestions(prev=>prev.map((q,i)=>i===idx?p.question:q));
-    } catch(e) { showToast("⚠️ "+e.message); }
+    try { const others=questions.filter((_,i)=>i!==idx); const p=parseJSON(await callClaude("Post :\n"+basePost+"\nQuestions existantes : "+JSON.stringify(others)+"\n\nGénère 1 nouvelle question différente.",'Réponds UNIQUEMENT en JSON valide. Format : {"question":"..."}',200)); if(p?.question) setQuestions(prev=>prev.map((q,i)=>i===idx?p.question:q)); } catch(e){showToast("⚠️ "+e.message);}
     setRegenIdx(null);
   }
-
-  async function handleEnrich() {
+  async function enrich() {
     setLoadE(true);
-    try {
-      const qa=questions.map((q,i)=>"Q: "+q+"\nR: "+(answers[i]||"—")).join("\n\n");
-      setEnriched(await callClaude("Post original :\n"+basePost+"\n\nVécu de l'auteur :\n"+qa+"\n\nRéécris ce post en intégrant naturellement ces éléments personnels.",LINKEDIN_RULES,1200));
-    } catch(e) { showToast("⚠️ "+e.message); }
+    try { const qa=questions.map((q,i)=>"Q: "+q+"\nR: "+(answers[i]||"—")).join("\n\n"); setEnriched(await callClaude("Post original :\n"+basePost+"\n\nVécu de l'auteur :\n"+qa+"\n\nRéécris ce post en intégrant naturellement ces éléments personnels.",LINKEDIN_RULES,1200)); } catch(e){showToast("⚠️ "+e.message);}
     setLoadE(false);
   }
-
   return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"100%",overflow:"hidden"}}>
-    {/* Gauche */}
     <div style={{borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",background:"#fff",overflow:"hidden"}}>
-      {/* Post de base */}
       <div style={{flexShrink:0,borderBottom:"0.5px solid "+C.gray200}}>
-        <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <span style={{fontSize:12,fontWeight:500}}>Post de base</span>
-          <span style={{fontSize:11,color:C.gray400}}>depuis Générer ou coller</span>
-        </div>
-        <div style={{padding:"1rem 1.25rem"}}>
-          <textarea value={basePost} onChange={e=>{setBasePost(e.target.value);setQuestions([]);setAnswers({});setEnriched("");}} placeholder="Collez votre post ici…" rows={5} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"none",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/>
-        </div>
-        <div style={{padding:"0 1.25rem 1rem"}}>
-          <Btn onClick={handleGenQ} disabled={loadQ||!basePost.trim()} full>{loadQ?"Génération…":"Générer les questions →"}</Btn>
-        </div>
+        <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between"}}><span style={{fontSize:12,fontWeight:500}}>Post de base</span><span style={{fontSize:11,color:C.gray400}}>depuis Générer ou coller</span></div>
+        <div style={{padding:"1rem 1.25rem"}}><textarea value={basePost} onChange={e=>{setBasePost(e.target.value);setQuestions([]);setAnswers({});setEnriched("");}} placeholder="Collez votre post ici…" rows={5} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:12,resize:"none",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.6}}/></div>
+        <div style={{padding:"0 1.25rem 1rem"}}><Btn onClick={genQ} disabled={loadQ||!basePost.trim()} full>{loadQ?"Génération…":"Générer les questions →"}</Btn></div>
       </div>
-      {/* Questions */}
       {questions.length>0&&<div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",display:"flex",flexDirection:"column",gap:14}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <span style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em"}}>Questions</span>
@@ -841,30 +718,23 @@ function InterviewTab({basePost,setBasePost,enriched,setEnriched,onSavePost,show
         {questions.map((q,i)=><div key={i}>
           <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
             <div style={{background:C.navyLight,borderLeft:"3px solid "+C.navy,borderRadius:"0 8px 8px 0",padding:"8px 10px",flex:1}}><p style={{fontSize:12,fontWeight:500,color:C.navy}}>{q}</p></div>
-            <button onClick={()=>handleRegenQ(i)} disabled={regenIdx===i} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:500,color:C.gray600,border:"0.5px solid "+C.gray200,background:"#fff",cursor:"pointer",fontFamily:"inherit",flexShrink:0,opacity:regenIdx===i?0.5:1}}>{regenIdx===i?"…":"↺"}</button>
+            <button onClick={()=>regenQ(i)} disabled={regenIdx===i} style={{padding:"3px 8px",borderRadius:6,fontSize:10,fontWeight:500,color:C.gray600,border:"0.5px solid "+C.gray200,background:"#fff",cursor:"pointer",fontFamily:"inherit",flexShrink:0,opacity:regenIdx===i?0.5:1}}>{regenIdx===i?"…":"↺"}</button>
           </div>
           <textarea value={answers[i]||""} onChange={e=>{const v=e.target.value;setAnswers(p=>({...p,[i]:v}));}} placeholder="Votre réponse…" rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:7,border:"0.5px solid "+C.gray200,fontSize:12,resize:"none",outline:"none",fontFamily:"inherit",background:C.gray50}}/>
         </div>)}
-        <Btn onClick={handleEnrich} disabled={loadE} full>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
+        <Btn onClick={enrich} disabled={loadE} full>{loadE?"Réécriture…":"✦ Réécrire avec mon vécu"}</Btn>
       </div>}
     </div>
-    {/* Droite : post enrichi */}
     <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",flexShrink:0,borderTop:enriched?"3px solid "+C.green:"none"}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,fontWeight:500,color:enriched?C.green:C.gray900}}>Post enrichi</span>{enriched&&<CharBadge n={enriched.length}/>}</div>
-        {enriched&&<div style={{display:"flex",gap:10}}>
-          <InlineBtn onClick={()=>navigator.clipboard.writeText(enriched)} color={C.navy}>Copier</InlineBtn>
-          <InlineBtn onClick={()=>{onSavePost({content:enriched,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}} color={C.green}>💾 Sauver</InlineBtn>
-        </div>}
+        {enriched&&<div style={{display:"flex",gap:10}}><IBtn onClick={()=>navigator.clipboard.writeText(enriched)} color={C.navy}>Copier</IBtn><IBtn onClick={()=>{onSavePost({content:enriched,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}} color={C.green}>💾 Sauver</IBtn></div>}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"1.5rem 2rem"}}>
-        {enriched?<p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:580,margin:"0 auto"}}>{enriched}</p>:<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12}}>
-          <div style={{width:40,height:40,borderRadius:"50%",border:"1.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:14,height:14,borderRadius:"50%",background:C.navy,opacity:0.25}}/></div>
-          <p style={{fontSize:12,color:C.gray400,textAlign:"center",lineHeight:1.5}}>Le post enrichi<br/>apparaîtra ici</p>
-        </div>}
+        {enriched?<p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:580,margin:"0 auto"}}>{enriched}</p>:<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12}}><div style={{width:40,height:40,borderRadius:"50%",border:"1.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:14,height:14,borderRadius:"50%",background:C.navy,opacity:0.25}}/></div><p style={{fontSize:12,color:C.gray400,textAlign:"center",lineHeight:1.5}}>Le post enrichi<br/>apparaîtra ici</p></div>}
       </div>
       {enriched&&<div style={{padding:"10px 16px",borderTop:"0.5px solid "+C.gray200,display:"flex",gap:6,background:"#fff",flexShrink:0,flexWrap:"wrap"}}>
-        <Pill onClick={handleEnrich} disabled={loadE}>↺ Regénérer</Pill>
+        <Pill onClick={enrich} disabled={loadE}>↺ Regénérer</Pill>
         <Pill onClick={()=>onGoAnalyser(enriched)}>→ Analyser</Pill>
         <Pill onClick={()=>onGoOptimiser(enriched)}>→ Optimiser</Pill>
       </div>}
@@ -873,52 +743,36 @@ function InterviewTab({basePost,setBasePost,enriched,setEnriched,onSavePost,show
 }
 
 // ─── ANALYSER ─────────────────────────────────────────────────────
-function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToast,onGoOptimiser,onSavePost}) {
+function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,onSavePost,showToast,onGoOptimiser}) {
   const [loading,setLoading]=useState(false);
-
-  async function handleAnalyze() {
-    if (!analyserPost) return;
-    setLoading(true); setAnalysis(null);
-    let attempts = 0;
-    while (attempts < 3) {
+  async function analyze() {
+    if (!analyserPost) return; setLoading(true); setAnalysis(null);
+    let attempts=0;
+    while (attempts<3) {
       try {
-        const sys = 'Tu es un expert LinkedIn. Tu DOIS répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après, sans balises markdown, sans explication. Réponds SEULEMENT avec ce JSON : {"score":7,"hook":{"note":6,"comment":"commentaire"},"structure":{"note":7,"comment":"commentaire"},"ton":{"note":8,"comment":"commentaire"},"longueur":{"note":5,"comment":"commentaire"},"points_forts":["point 1","point 2"],"points_faibles":["point 1"],"recommandations":["reco 1","reco 2"]}';
-        const userMsg = 'Analyse ce post LinkedIn et retourne UNIQUEMENT le JSON demandé :\n\n' + analyserPost;
-        const txt = await callClaude(userMsg, sys, 1200);
-        const p = parseJSON(txt);
-        if (p?.score !== undefined) {
-          setAnalysis(p);
-          setLoading(false);
-          return;
-        }
-      } catch(e) {
-        if (attempts === 2) { showToast("⚠️ " + e.message); }
-      }
+        const sys='Tu es expert LinkedIn. Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après, sans markdown. Format : {"score":7,"hook":{"note":6,"comment":"..."},"structure":{"note":7,"comment":"..."},"ton":{"note":8,"comment":"..."},"longueur":{"note":5,"comment":"..."},"points_forts":["..."],"points_faibles":["..."],"recommandations":["..."]}';
+        const p=parseJSON(await callClaude("Analyse ce post LinkedIn et retourne UNIQUEMENT le JSON :\n\n"+analyserPost,sys,1200));
+        if (p?.score!==undefined) { setAnalysis(p); setLoading(false); return; }
+      } catch(e) { if(attempts===2) showToast("⚠️ "+e.message); }
       attempts++;
     }
-    showToast("⚠️ Analyse échouée après 3 tentatives, réessayez");
-    setLoading(false);
+    showToast("⚠️ Analyse échouée, réessayez"); setLoading(false);
   }
-
   return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"100%",overflow:"hidden"}}>
-    {/* Post */}
     <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-        <span style={{fontSize:12,fontWeight:500}}>Post à analyser</span>
-        <CharBadge n={analyserPost.length}/>
+        <span style={{fontSize:12,fontWeight:500}}>Post à analyser</span><CharBadge n={analyserPost.length}/>
       </div>
-      <div style={{flex:1,padding:"1rem 1.25rem",overflow:"hidden",display:"flex",flexDirection:"column",gap:12}}>
+      <div style={{flex:1,padding:"1rem 1.25rem",overflow:"hidden",display:"flex",flexDirection:"column"}}>
         <textarea value={analyserPost} onChange={e=>{setAnalyserPost(e.target.value);setAnalysis(null);}} placeholder="Collez votre post ici…" style={{flex:1,width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.8}}/>
       </div>
       <div style={{padding:"10px 16px",borderTop:"0.5px solid "+C.gray200,flexShrink:0}}>
-        <Btn onClick={handleAnalyze} disabled={!analyserPost||loading} full>{loading?"Analyse…":"Analyser ce post"}</Btn>
+        <Btn onClick={analyze} disabled={!analyserPost||loading} full>{loading?"Analyse…":"Analyser ce post"}</Btn>
       </div>
     </div>
-    {/* Résultats */}
     <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
-      {!analysis
-        ?<div style={{display:"flex",alignItems:"center",justifyContent:"center",flex:1}}><p style={{fontSize:13,color:C.gray400}}>Les résultats apparaîtront ici.</p></div>
-        :<React.Fragment>
+      {!analysis?<div style={{display:"flex",alignItems:"center",justifyContent:"center",flex:1}}><p style={{fontSize:13,color:C.gray400}}>Les résultats apparaîtront ici.</p></div>:
+        <React.Fragment>
           <div style={{padding:"14px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:16,flexShrink:0,background:"#fff"}}>
             <div style={{textAlign:"center",flexShrink:0}}>
               <p style={{fontSize:10,color:C.gray400,marginBottom:2}}>Score</p>
@@ -941,11 +795,9 @@ function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToas
               {analysis.recommandations.map((r,i)=><p key={i} style={{fontSize:12,color:C.gray900,marginBottom:5}}>{i+1}. {r}</p>)}
             </div>}
           </div>
-          <div style={{padding:"12px 16px",borderTop:"2px solid "+C.navy,background:"#fff",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 -4px 12px rgba(30,58,95,0.08)"}}>
-            <div style={{display:"flex",gap:8}}>
-              <Btn variant="secondary" onClick={()=>{onSavePost({content:analyserPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}}>💾 Sauver ce post</Btn>
-              <Btn onClick={()=>onGoOptimiser(analyserPost)}>→ Optimiser ce post</Btn>
-            </div>
+          <div style={{padding:"12px 16px",borderTop:"2px solid "+C.navy,background:"#fff",flexShrink:0,display:"flex",alignItems:"center",gap:8,boxShadow:"0 -4px 12px rgba(30,58,95,0.08)"}}>
+            <Btn variant="secondary" onClick={()=>{onSavePost({content:analyserPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}}>💾 Sauver</Btn>
+            <Btn onClick={()=>onGoOptimiser(analyserPost)}>→ Optimiser</Btn>
           </div>
         </React.Fragment>
       }
@@ -953,16 +805,14 @@ function AnalyserTab({analyserPost,setAnalyserPost,analysis,setAnalysis,showToas
   </div>;
 }
 
-// ─── OPTIMISER — 2 colonnes ───────────────────────────────────────
+// ─── OPTIMISER ────────────────────────────────────────────────────
 function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoAnalyser,profile}) {
   const [selAxes,   setSelAxes]   = useState([]);
   const [freeInst,  setFreeInst]  = useState("");
   const [optimPost, setOptimPost] = useState("");
   const [loading,   setLoading]   = useState(false);
-
-  async function handleOptimize() {
-    if (!optimiserPost) return;
-    setLoading(true);
+  async function optimize() {
+    if (!optimiserPost) return; setLoading(true);
     try {
       const desc=selAxes.map(id=>{const a=OPTIM_AXES.find(x=>x.id===id);return a?"- "+a.label+" : "+a.desc:"";}).filter(Boolean).join("\n");
       const instr=[desc,freeInst.trim()].filter(Boolean).join("\n\nInstruction libre :\n")||"Améliore globalement.";
@@ -970,21 +820,16 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
-
   return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"100%",overflow:"hidden"}}>
-    {/* Colonne gauche : axes + post à optimiser */}
     <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{flex:1,overflowY:"auto",padding:"1.25rem",display:"flex",flexDirection:"column",gap:14}}>
         <div>
           <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Axes d'optimisation</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-            {OPTIM_AXES.map(a=>{
-              const sel=selAxes.includes(a.id);
-              return <div key={a.id} onClick={()=>setSelAxes(p=>sel?p.filter(x=>x!==a.id):[...p,a.id])} style={{padding:"8px 10px",borderRadius:8,border:sel?"1.5px solid "+C.navy:"0.5px solid "+C.gray200,background:sel?C.navyLight:"#fff",cursor:"pointer"}}>
-                <p style={{fontSize:12,fontWeight:sel?500:400,color:sel?C.navy:C.gray900,marginBottom:1}}>{a.label}</p>
-                <p style={{fontSize:10,color:C.gray400,lineHeight:1.3}}>{a.desc}</p>
-              </div>;
-            })}
+            {OPTIM_AXES.map(a=>{ const sel=selAxes.includes(a.id); return <div key={a.id} onClick={()=>setSelAxes(p=>sel?p.filter(x=>x!==a.id):[...p,a.id])} style={{padding:"8px 10px",borderRadius:8,border:sel?"1.5px solid "+C.navy:"0.5px solid "+C.gray200,background:sel?C.navyLight:"#fff",cursor:"pointer"}}>
+              <p style={{fontSize:12,fontWeight:sel?500:400,color:sel?C.navy:C.gray900,marginBottom:1}}>{a.label}</p>
+              <p style={{fontSize:10,color:C.gray400,lineHeight:1.3}}>{a.desc}</p>
+            </div>; })}
           </div>
         </div>
         <div>
@@ -997,43 +842,29 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
         </div>
       </div>
       <div style={{padding:"1rem 1.25rem",borderTop:"0.5px solid "+C.gray200,flexShrink:0}}>
-        <Btn onClick={handleOptimize} disabled={!optimiserPost||(selAxes.length===0&&!freeInst.trim())||loading} full>{loading?"Optimisation…":"⚡ Optimiser"+(selAxes.length?" ("+selAxes.length+")":"")}</Btn>
+        <Btn onClick={optimize} disabled={!optimiserPost||(selAxes.length===0&&!freeInst.trim())||loading} full>{loading?"Optimisation…":"⚡ Optimiser"+(selAxes.length?" ("+selAxes.length+")":"")}</Btn>
       </div>
     </div>
-
-    {/* Colonne droite : post optimisé + aperçu LinkedIn */}
     <div style={{display:"flex",flexDirection:"column",overflowY:"auto",background:C.gray50}}>
-      {/* Post optimisé */}
       <div style={{background:"#fff",borderBottom:"0.5px solid "+C.gray200,flexShrink:0}}>
         <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",borderTop:optimPost?"3px solid "+C.green:"none"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:12,fontWeight:500,color:optimPost?C.green:C.gray900}}>Post optimisé</span>
-            {optimPost&&<CharBadge n={optimPost.length}/>}
-          </div>
-          {optimPost&&<div style={{display:"flex",gap:10}}>
-            <InlineBtn onClick={()=>navigator.clipboard.writeText(optimPost)} color={C.navy}>Copier</InlineBtn>
-            <InlineBtn onClick={()=>{onSavePost({content:optimPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}} color={C.green}>💾 Sauver</InlineBtn>
-          </div>}
+          <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,fontWeight:500,color:optimPost?C.green:C.gray900}}>Post optimisé</span>{optimPost&&<CharBadge n={optimPost.length}/>}</div>
+          {optimPost&&<div style={{display:"flex",gap:10}}><IBtn onClick={()=>navigator.clipboard.writeText(optimPost)} color={C.navy}>Copier</IBtn><IBtn onClick={()=>{onSavePost({content:optimPost,axis:"",tone:"",style:""});showToast("✓ Post sauvegardé");}} color={C.green}>💾 Sauver</IBtn></div>}
         </div>
         {optimPost?<React.Fragment>
-          <div style={{padding:"1.25rem 2rem"}}>
-            <p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:560,margin:"0 auto"}}>{optimPost}</p>
-          </div>
+          <div style={{padding:"1.25rem 2rem"}}><p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:560,margin:"0 auto"}}>{optimPost}</p></div>
           <div style={{padding:"10px 16px",borderTop:"0.5px solid "+C.gray200,display:"flex",gap:6,flexWrap:"wrap"}}>
-            <Pill onClick={handleOptimize} disabled={loading}>↺ Regénérer</Pill>
+            <Pill onClick={optimize} disabled={loading}>↺ Regénérer</Pill>
             <Pill onClick={()=>{setOptimiserPost(optimPost);setOptimPost("");}}>→ Nouvelle base</Pill>
             <Pill onClick={()=>onGoAnalyser(optimPost)}>↺ Ré-analyser</Pill>
           </div>
-        </React.Fragment>:<div style={{padding:"2rem",display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <p style={{fontSize:13,color:C.gray400}}>Le post optimisé apparaîtra ici.</p>
-        </div>}
+        </React.Fragment>:<div style={{padding:"2rem",display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{fontSize:13,color:C.gray400}}>Le post optimisé apparaîtra ici.</p></div>}
       </div>
-      {/* Aperçu LinkedIn */}
       {optimPost&&<div style={{padding:"1.25rem 2rem"}}>
         <p style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:12}}>Aperçu LinkedIn</p>
         <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,maxWidth:480,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-            <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>N</div>
+            <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{profile?.name?profile.name[0].toUpperCase():"N"}</div>
             <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>{profile?.name||"Votre nom"}</p><p style={{fontSize:11,color:C.gray400}}>AI Champion · À l'instant · 🌐</p></div>
           </div>
           <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,marginBottom:10}}>{optimPost.slice(0,180)}{optimPost.length>180&&<span style={{color:C.gray400}}>… voir plus</span>}</p>
@@ -1051,82 +882,71 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
 
 // ─── CRÉER ────────────────────────────────────────────────────────
 function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast,onMarkDone}) {
-  const [activeTab,     setActiveTab]     = useState("generer");
+  const [active,        setActive]        = useState("generer");
   const [genPost,       setGenPost]       = useState("");
   const [basePost,      setBasePost]      = useState("");
   const [enriched,      setEnriched]      = useState("");
   const [analyserPost,  setAnalyserPost]  = useState("");
   const [analysis,      setAnalysis]      = useState(null);
   const [optimiserPost, setOptimiserPost] = useState("");
-
   const TABS=[{id:"generer",label:"Générer"},{id:"interview",label:"Interview"},{id:"analyser",label:"Analyser"},{id:"optimiser",label:"Optimiser"}];
-
-  function goInterview(post)  { setBasePost(post);                       setActiveTab("interview"); }
-  function goAnalyser(post)   { setAnalyserPost(post); setAnalysis(null); setActiveTab("analyser");  }
-  function goOptimiser(post)  { setOptimiserPost(post);                  setActiveTab("optimiser"); }
-
+  const goInterview  = p=>{ setBasePost(p);     setActive("interview"); };
+  const goAnalyser   = p=>{ setAnalyserPost(p); setAnalysis(null); setActive("analyser"); };
+  const goOptimiser  = p=>{ setOptimiserPost(p);setActive("optimiser"); };
   return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)",overflow:"hidden"}}>
-    <SubTabs tabs={TABS} active={activeTab} onChange={setActiveTab}/>
+    <SubTabs tabs={TABS} active={active} onChange={setActive}/>
     <div style={{flex:1,overflow:"hidden"}}>
-                {activeTab==="generer"   && <GenererTab key={JSON.stringify(prefill)} profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser} onMarkDone={onMarkDone}/>}
-      {activeTab==="interview" && <InterviewTab basePost={basePost} setBasePost={setBasePost} enriched={enriched} setEnriched={setEnriched} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
-      {activeTab==="analyser"  && <AnalyserTab  analyserPost={analyserPost} setAnalyserPost={setAnalyserPost} analysis={analysis} setAnalysis={setAnalysis} showToast={showToast} onGoOptimiser={goOptimiser} onSavePost={onSavePost}/>}
-                {activeTab==="optimiser" && <OptimiserTab optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} profile={profile}/>}
+      {active==="generer"   && <GenererTab   key={prefill?.roadmapSug?.week||"gen"} profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser} onMarkDone={onMarkDone}/>}
+      {active==="interview" && <InterviewTab basePost={basePost} setBasePost={setBasePost} enriched={enriched} setEnriched={setEnriched} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
+      {active==="analyser"  && <AnalyserTab  analyserPost={analyserPost} setAnalyserPost={setAnalyserPost} analysis={analysis} setAnalysis={setAnalysis} onSavePost={onSavePost} showToast={showToast} onGoOptimiser={goOptimiser}/>}
+      {active==="optimiser" && <OptimiserTab optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} profile={profile}/>}
     </div>
   </div>;
 }
 
 // ─── MES POSTS ────────────────────────────────────────────────────
 function MesPostsTab({posts,onDelete,onAdd}) {
-  const [filter,    setFilter]    = useState("all");
-  const [selected,  setSelected]  = useState(null);
-  const [newMode,   setNewMode]   = useState(false);
-  const [newContent,setNewContent]= useState("");
-
+  const [filter,     setFilter]     = useState("all");
+  const [selected,   setSelected]   = useState(null);
+  const [newMode,    setNewMode]    = useState(false);
+  const [newContent, setNewContent] = useState("");
   const axes=[...new Set(posts.map(p=>p.axis).filter(Boolean))];
   const filtered=filter==="all"?posts:posts.filter(p=>p.axis===filter);
+  function handleAdd() { if(!newContent.trim()) return; onAdd({content:newContent.trim(),axis:"",tone:"",style:""}); setNewContent(""); setNewMode(false); }
 
-  function handleAdd() {
-    if (!newContent.trim()) return;
-    onAdd({content:newContent.trim(),axis:"",tone:"",style:""});
-    setNewContent(""); setNewMode(false);
-  }
-
-  if (selected) return (
-    <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr",overflow:"hidden"}}>
-      <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
-          <button onClick={()=>setSelected(null)} style={{fontSize:12,color:C.navy,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:6}}>← Retour</button>
-          <div style={{display:"flex",gap:10}}>
-            <button onClick={()=>navigator.clipboard.writeText(selected.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-            <button onClick={()=>{onDelete(selected.id);setSelected(null);}} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Supprimer</button>
-          </div>
-        </div>
-        <div style={{flex:1,overflowY:"auto",padding:"1.5rem 2rem"}}>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
-            {selected.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{selected.axis}</span>}
-            {selected.tone&&<span style={{fontSize:11,color:C.gray400}}>{selected.tone}{selected.style?" · "+selected.style:""}</span>}
-            <span style={{fontSize:11,color:C.gray400,marginLeft:"auto"}}>{selected.date}</span>
-          </div>
-          <p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:640,margin:"0 auto"}}>{selected.content}</p>
+  if (selected) return <div style={{height:"calc(100vh - 56px)",display:"grid",gridTemplateColumns:"1fr 1fr",overflow:"hidden"}}>
+    <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        <button onClick={()=>setSelected(null)} style={{fontSize:12,color:C.navy,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>← Retour</button>
+        <div style={{display:"flex",gap:10}}>
+          <IBtn onClick={()=>navigator.clipboard.writeText(selected.content)} color={C.navy}>Copier</IBtn>
+          <IBtn onClick={()=>{onDelete(selected.id);setSelected(null);}} color={C.red}>Supprimer</IBtn>
         </div>
       </div>
-      <div style={{background:C.gray50,display:"flex",alignItems:"center",justifyContent:"center"}}>
-        <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,maxWidth:420,width:"100%",margin:"1.5rem"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-            <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{selected.content[0]?.toUpperCase()||"P"}</div>
-            <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>Aperçu post</p><p style={{fontSize:11,color:C.gray400}}>À l'instant · 🌐</p></div>
-          </div>
-          <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,marginBottom:10}}>{selected.content.slice(0,200)}{selected.content.length>200&&<span style={{color:C.gray400}}>… voir plus</span>}</p>
-          <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:8,display:"flex",gap:16}}>
-            <span style={{fontSize:11,color:C.gray400}}>👍 J'aime</span>
-            <span style={{fontSize:11,color:C.gray400}}>💬 Commenter</span>
-            <span style={{fontSize:11,color:C.gray400}}>🔁 Partager</span>
-          </div>
+      <div style={{flex:1,overflowY:"auto",padding:"1.5rem 2rem"}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+          {selected.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{selected.axis}</span>}
+          {selected.tone&&<span style={{fontSize:11,color:C.gray400}}>{selected.tone}{selected.style?" · "+selected.style:""}</span>}
+          <span style={{fontSize:11,color:C.gray400,marginLeft:"auto"}}>{selected.date}</span>
+        </div>
+        <p style={{fontSize:13,lineHeight:1.85,color:C.gray900,whiteSpace:"pre-wrap",maxWidth:640,margin:"0 auto"}}>{selected.content}</p>
+      </div>
+    </div>
+    <div style={{background:C.gray50,display:"flex",alignItems:"center",justifyContent:"center",padding:"1.5rem"}}>
+      <div style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,maxWidth:420,width:"100%"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+          <div style={{width:40,height:40,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:14,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{selected.content[0]?.toUpperCase()||"P"}</div>
+          <div><p style={{fontSize:13,fontWeight:500,color:C.gray900}}>Aperçu post</p><p style={{fontSize:11,color:C.gray400}}>À l'instant · 🌐</p></div>
+        </div>
+        <p style={{fontSize:12,lineHeight:1.7,color:C.gray900,marginBottom:10}}>{selected.content.slice(0,200)}{selected.content.length>200&&<span style={{color:C.gray400}}>… voir plus</span>}</p>
+        <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:8,display:"flex",gap:16}}>
+          <span style={{fontSize:11,color:C.gray400}}>👍 J'aime</span>
+          <span style={{fontSize:11,color:C.gray400}}>💬 Commenter</span>
+          <span style={{fontSize:11,color:C.gray400}}>🔁 Partager</span>
         </div>
       </div>
     </div>
-  );
+  </div>;
 
   return <div style={{height:"calc(100vh - 56px)",overflowY:"auto",padding:"1.5rem",background:C.gray50}}>
     <div style={{maxWidth:1200,margin:"0 auto"}}>
@@ -1134,33 +954,28 @@ function MesPostsTab({posts,onDelete,onAdd}) {
         <p style={{fontSize:16,fontWeight:500,color:C.gray900}}>Mes posts <span style={{fontSize:13,color:C.gray400,fontWeight:400}}>({posts.length})</span></p>
         <Btn onClick={()=>setNewMode(true)}>+ Nouveau post</Btn>
       </div>
-
       {newMode&&<div style={{background:"#fff",border:"1.5px solid "+C.navy,borderRadius:10,padding:16,marginBottom:16}}>
         <p style={{fontSize:12,fontWeight:500,color:C.gray900,marginBottom:10}}>Nouveau post</p>
         <textarea value={newContent} onChange={e=>setNewContent(e.target.value)} placeholder="Rédigez votre post ici…" rows={6} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit",background:C.gray50,lineHeight:1.7,marginBottom:10}}/>
-        <div style={{display:"flex",gap:8}}>
-          <Btn onClick={handleAdd} disabled={!newContent.trim()}>💾 Sauvegarder</Btn>
-          <Btn variant="secondary" onClick={()=>{setNewMode(false);setNewContent("");}}>Annuler</Btn>
-        </div>
+        <div style={{display:"flex",gap:8}}><Btn onClick={handleAdd} disabled={!newContent.trim()}>💾 Sauvegarder</Btn><Btn variant="secondary" onClick={()=>{setNewMode(false);setNewContent("");}}>Annuler</Btn></div>
       </div>}
-
       <div style={{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}}>
         {["all",...axes].map(a=><button key={a} onClick={()=>setFilter(a)} style={{padding:"4px 10px",borderRadius:20,fontSize:11,cursor:"pointer",background:filter===a?C.navyLight:C.gray100,color:filter===a?C.navy:C.gray600,border:filter===a?"0.5px solid "+C.navyMid:"0.5px solid "+C.gray200,fontWeight:filter===a?500:400,fontFamily:"inherit"}}>{a==="all"?"Tous":a}</button>)}
       </div>
       {filtered.length===0?<Empty icon="📝" text="Aucun post sauvegardé."/>:
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:10}}>
-          {filtered.map(p=><div key={p.id} onClick={()=>setSelected(p)} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,cursor:"pointer",transition:"border-color 0.15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.navy} onMouseLeave={e=>e.currentTarget.style.borderColor=C.gray200}>
+          {filtered.map(p=><div key={p.id} onClick={()=>setSelected(p)} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,padding:14,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.borderColor=C.navy} onMouseLeave={e=>e.currentTarget.style.borderColor=C.gray200}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {p.axis&&<span style={{padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:11,fontWeight:500}}>{p.axis}</span>}
-                {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}{p.style?" · "+p.style:""}</span>}
+                {p.tone&&<span style={{fontSize:11,color:C.gray400}}>{p.tone}</span>}
               </div>
               <span style={{fontSize:11,color:C.gray400,flexShrink:0}}>{p.date}</span>
             </div>
             <p style={{fontSize:13,color:C.gray900,lineHeight:1.6,whiteSpace:"pre-wrap",maxHeight:80,overflow:"hidden",WebkitMaskImage:"linear-gradient(to bottom, black 50%, transparent)",marginBottom:10}}>{p.content}</p>
             <div style={{display:"flex",gap:10,borderTop:"0.5px solid "+C.gray200,paddingTop:8}} onClick={e=>e.stopPropagation()}>
-              <button onClick={()=>navigator.clipboard.writeText(p.content)} style={{fontSize:11,color:C.navy,background:"none",border:"none",cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}>Copier</button>
-              <button onClick={()=>onDelete(p.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",marginLeft:"auto",fontFamily:"inherit"}}>Supprimer</button>
+              <IBtn onClick={()=>navigator.clipboard.writeText(p.content)} color={C.navy}>Copier</IBtn>
+              <IBtn onClick={()=>onDelete(p.id)} color={C.red} style={{marginLeft:"auto"}}>Supprimer</IBtn>
             </div>
           </div>)}
         </div>
@@ -1177,12 +992,11 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
   const [loading,  setLoading]  = useState(false);
   const engRate=metrics.impressions?(((+metrics.likes||0)+(+metrics.comments||0))/+metrics.impressions*100).toFixed(1):null;
   const avgImp=insights.length?Math.round(insights.reduce((s,i)=>s+(+i.impressions||0),0)/insights.length):null;
-  const avgEng=insights.length?(insights.reduce((s,i)=>{const e=i.impressions?(((+i.likes||0)+(+i.comments||0))/+i.impressions*100):0;return s+e;},0)/insights.length).toFixed(1):null;
-  async function handleAnalyze() {
-    if (!selPost.trim()) return;
-    setLoading(true);
+  const avgEng=insights.length?(insights.reduce((s,i)=>{ const e=i.impressions?(((+i.likes||0)+(+i.comments||0))/+i.impressions*100):0; return s+e; },0)/insights.length).toFixed(1):null;
+  async function analyze() {
+    if (!selPost.trim()) return; setLoading(true);
     try {
-      const hist=insights.slice(0,3).map(i=>"impressions:"+i.impressions+" likes:"+i.likes+" comments:"+i.comments).join(" | ");
+      const hist=insights.slice(0,3).map(i=>"imp:"+i.impressions+" likes:"+i.likes+" comm:"+i.comments).join(" | ");
       setImproved(await callClaude("Post :\n"+selPost+"\nPerf : impressions="+metrics.impressions+", likes="+metrics.likes+", commentaires="+metrics.comments+(hist?"\nHistorique : "+hist:"")+"\n\nAnalyse et génère une version améliorée.",LINKEDIN_RULES,1200));
       onAddInsight({postSnippet:selPost.slice(0,200),impressions:metrics.impressions,likes:metrics.likes,comments:metrics.comments});
       showToast("✓ Analyse enregistrée");
@@ -1208,7 +1022,7 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
         </div>}
       </div>
       <div style={{border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden"}}>
-        <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}><div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div><span style={{fontSize:11,fontWeight:500}}>Performances J+7</span><span style={{fontSize:10,color:C.gray400}}>— à saisir après publication</span></div>
+        <div style={{padding:"8px 12px",background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",gap:8}}><div style={{width:18,height:18,borderRadius:"50%",background:C.navy,color:"#fff",fontSize:9,fontWeight:500,display:"flex",alignItems:"center",justifyContent:"center"}}>2</div><span style={{fontSize:11,fontWeight:500}}>Performances J+7</span></div>
         <div style={{padding:"10px 12px"}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
             {[{l:"Impressions",k:"impressions"},{l:"Likes",k:"likes"},{l:"Commentaires",k:"comments"}].map(x=><div key={x.k}>
@@ -1216,12 +1030,12 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
               <input type="number" min="0" value={metrics[x.k]} onChange={e=>{const v=e.target.value;setMetrics(m=>({...m,[x.k]:v}));}} placeholder="0" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+C.gray200,fontSize:13,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
             </div>)}
           </div>
-          {engRate&&<div style={{padding:"6px 10px",background:C.gray50,borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray600}}>Taux d'engagement calculé</span><span style={{fontSize:13,fontWeight:500,color:C.green}}>{engRate}%</span></div>}
+          {engRate&&<div style={{padding:"6px 10px",background:C.gray50,borderRadius:8,display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:C.gray600}}>Taux d'engagement</span><span style={{fontSize:13,fontWeight:500,color:C.green}}>{engRate}%</span></div>}
         </div>
       </div>
-      <Btn full onClick={handleAnalyze} disabled={!selPost.trim()||loading}>{loading?"Analyse…":"✦ Analyser & générer une version améliorée"}</Btn>
+      <Btn full onClick={analyze} disabled={!selPost.trim()||loading}>{loading?"Analyse…":"✦ Analyser & générer une version améliorée"}</Btn>
       {improved&&<div>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post amélioré</span><InlineBtn onClick={()=>navigator.clipboard.writeText(improved)} color={C.navy}>Copier</InlineBtn></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}><span style={{fontSize:13,fontWeight:500,color:C.green}}>Post amélioré</span><IBtn onClick={()=>navigator.clipboard.writeText(improved)} color={C.navy}>Copier</IBtn></div>
         <div style={{background:"#F0FDF4",borderRadius:8,padding:12,fontSize:12,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{improved}</div>
       </div>}
     </div>
@@ -1234,7 +1048,7 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
         insights.map(ins=>{
           const eng=ins.impressions?(((+ins.likes||0)+(+ins.comments||0))/+ins.impressions*100).toFixed(1):null;
           return <div key={ins.id} style={{background:"#fff",border:"0.5px solid "+C.gray200,borderRadius:10,overflow:"hidden",marginBottom:8}}>
-            <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><button onClick={()=>onDeleteInsight(ins.id)} style={{fontSize:11,color:C.red,background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Suppr.</button></div>
+            <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200,display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:C.gray400}}>{ins.date}</span><IBtn onClick={()=>onDeleteInsight(ins.id)} color={C.red}>Suppr.</IBtn></div>
             <div style={{padding:"8px 12px",borderBottom:"0.5px solid "+C.gray200}}><p style={{fontSize:11,color:C.gray400,fontStyle:"italic",lineHeight:1.4}}>{ins.postSnippet}…</p></div>
             <div style={{padding:"8px 12px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
               {[{l:"Vues",v:ins.impressions},{l:"Likes",v:ins.likes},{l:"Comm.",v:ins.comments},{l:"Eng.",v:eng?eng+"%":"—",g:true}].map(x=><div key={x.l} style={{background:C.gray50,borderRadius:6,padding:"6px 4px",textAlign:"center"}}><p style={{fontSize:10,color:C.gray400}}>{x.l}</p><p style={{fontSize:13,fontWeight:500,color:x.g?C.green:C.gray900}}>{x.v||"—"}</p></div>)}
@@ -1246,12 +1060,13 @@ function InsightsTab({insights,posts,onAddInsight,onDeleteInsight,showToast}) {
   </div>;
 }
 
-// ─── APP SHELL — avec Netlify Blobs ───────────────────────────────
+// ─── APP SHELL ────────────────────────────────────────────────────
 function AppShell() {
-  const auth = useAuth();
+  const auth       = useAuth();
   const toastTimer = useRef(null);
   const saveTimer  = useRef(null);
-  const [toastMsg,     setToastMsg]     = useState("");
+
+  const [toast,        setToast]        = useState("");
   const [dataLoaded,   setDataLoaded]   = useState(false);
   const [activeTab,    setActiveTab]    = useState("profil");
   const [profile,      setProfile]      = useState(null);
@@ -1265,72 +1080,95 @@ function AppShell() {
   const [insights,     setInsights]     = useState([]);
   const [creerPrefill, setCreerPrefill] = useState(null);
 
-  function showToast(m) { clearTimeout(toastTimer.current); setToastMsg(m); toastTimer.current=setTimeout(()=>setToastMsg(""),2800); }
+  function showToast(m) { clearTimeout(toastTimer.current); setToast(m); toastTimer.current=setTimeout(()=>setToast(""),2800); }
 
-  // Chargement des données depuis Netlify Blobs au login
+  // Chargement
   useEffect(()=>{
-    if (!auth.user || dataLoaded) return;
-    const timeout = setTimeout(()=>{ setDataLoaded(true); }, 6000); // failsafe 6s
-    loadUserData().then(data=>{
-      clearTimeout(timeout);
-      if (data && Object.keys(data).length>0) {
-        if (data.profile)      setProfile(data.profile);
-        if (data.axesSessions) setAxesSessions(data.axesSessions);
-        if (data.favAxes)      setFavAxes(data.favAxes);
-        if (data.selectedAxes) setSelectedAxes(data.selectedAxes);
-        if (data.roadmaps)     setRoadmaps(data.roadmaps);
-        if (data.activeRmId)   setActiveRmId(data.activeRmId);
-        if (data.pubWeeks)     setPubWeeks(new Set(data.pubWeeks));
-        if (data.posts)        setPosts(data.posts);
-        if (data.insights)     setInsights(data.insights);
+    if (!auth.user||dataLoaded) return;
+    const failsafe=setTimeout(()=>setDataLoaded(true),6000);
+    loadUserData().then(d=>{
+      clearTimeout(failsafe);
+      if (d&&Object.keys(d).length>0) {
+        if(d.profile)      setProfile(d.profile);
+        if(d.axesSessions) setAxesSessions(d.axesSessions);
+        if(d.favAxes)      setFavAxes(d.favAxes);
+        if(d.selectedAxes) setSelectedAxes(d.selectedAxes);
+        if(d.roadmaps)     setRoadmaps(d.roadmaps);
+        if(d.activeRmId)   setActiveRmId(d.activeRmId);
+        if(d.pubWeeks)     setPubWeeks(new Set(d.pubWeeks));
+        if(d.posts)        setPosts(d.posts);
+        if(d.insights)     setInsights(d.insights);
         showToast("✓ Données chargées");
       }
       setDataLoaded(true);
-    }).catch(()=>{ clearTimeout(timeout); setDataLoaded(true); });
+    }).catch(()=>{ clearTimeout(failsafe); setDataLoaded(true); });
   },[auth.user]);
 
-  // Sauvegarde auto debounced (500ms après chaque changement)
-  const allData = { profile, axesSessions, favAxes, selectedAxes, roadmaps, activeRmId, pubWeeks: Array.from(pubWeeks), posts, insights };
+  // Sauvegarde auto debounced
   useEffect(()=>{
     if (!dataLoaded) return;
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(()=>{ saveUserData(allData); }, 500);
+    saveTimer.current=setTimeout(()=>{
+      saveUserData({profile,axesSessions,favAxes,selectedAxes,roadmaps,activeRmId,pubWeeks:Array.from(pubWeeks),posts,insights});
+    },800);
     return ()=>clearTimeout(saveTimer.current);
   },[profile,axesSessions,favAxes,selectedAxes,roadmaps,activeRmId,pubWeeks,posts,insights,dataLoaded]);
 
-  function createRoadmap() { const rm={id:uid(),name:"Roadmap "+(roadmaps.length+1),createdAt:toDay(),weeks:[]}; setRoadmaps(p=>[...p,rm]); setActiveRmId(rm.id); return rm; }
-  function handleDeleteAxis(id) { setAxesSessions(p=>p.map(s=>({...s,axes:s.axes.filter(a=>a.id!==id)})).filter(s=>s.axes.length>0)); setSelectedAxes(p=>p.filter(a=>a.id!==id)); setFavAxes(p=>p.filter(x=>x!==id)); }
+  function createRoadmap() {
+    const rm={id:uid(),name:"Roadmap "+(roadmaps.length+1),createdAt:toDay(),weeks:[]};
+    setRoadmaps(p=>[...p,rm]); setActiveRmId(rm.id); return rm;
+  }
+  function deleteAxis(id) {
+    setAxesSessions(p=>p.map(s=>({...s,axes:s.axes.filter(a=>a.id!==id)})).filter(s=>s.axes.length>0));
+    setSelectedAxes(p=>p.filter(a=>a.id!==id));
+    setFavAxes(p=>p.filter(x=>x!==id));
+  }
 
-  if (!dataLoaded && auth.user) return <div style={{height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:C.gray400}}>
+  if (!dataLoaded&&auth.user) return <div style={{height:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:C.gray400}}>
     <div style={{width:32,height:32,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{width:8,height:8,borderRadius:"50%",background:"#fff"}}/></div>
     <p style={{fontSize:13}}>Chargement de vos données…</p>
   </div>;
 
   return <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-    <Toast message={toastMsg}/>
+    <Toast message={toast}/>
     <NavBar activeTab={activeTab} onTabChange={setActiveTab} postCount={posts.length} insightCount={insights.length}/>
     <main style={{flex:1,overflow:"hidden"}}>
       {activeTab==="profil"  && <ProfilTab profile={profile} onSave={p=>{setProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
-      {activeTab==="axes"    && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>setActiveTab("roadmap")}/>}
+      {activeTab==="axes"    && <AxesTab
+        axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes}
+        onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])}
+        onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])}
+        onDeleteAxis={deleteAxis}
+        onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}}
+        profile={profile} showToast={showToast}
+        onGoRoadmap={()=>setActiveTab("roadmap")}
+      />}
       {activeTab==="roadmap" && <RoadmapTab
         roadmaps={roadmaps}
         activeRmId={activeRmId}
+        selectedAxes={selectedAxes}
+        profile={profile}
+        pubWeeks={pubWeeks}
+        showToast={showToast}
         onSetActive={setActiveRmId}
         onNewRoadmap={createRoadmap}
         onRenameRoadmap={id=>{ const n=window.prompt("Nouveau nom :"); if(n?.trim()) setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r)); }}
-        onDeleteRoadmap={id=>setRoadmaps(p=>{ const nx=p.filter(r=>r.id!==id); if(activeRmId===id) setActiveRmId(nx.length?nx[0].id:null); return nx; })}
+        onDeleteRoadmap={id=>{ setRoadmaps(p=>{ const nx=p.filter(r=>r.id!==id); if(activeRmId===id) setActiveRmId(nx[0]?.id||null); return nx; }); }}
         onRoadmapGenerated={rm=>{ setRoadmaps(p=>[...p,rm]); setActiveRmId(rm.id); showToast("✓ Roadmap générée !"); }}
         onRoadmapUpdated={(id,weeks,dur)=>{ setRoadmaps(p=>p.map(r=>r.id===id?{...r,weeks,dur,name:"Roadmap "+dur+"m — "+toDay()}:r)); showToast("✓ Roadmap générée !"); }}
-        onWeekUpdated={w=>{ setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?w:x)}:r)); }}
+        onWeekUpdated={w=>{ setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?{...w}:x)}:r)); }}
         onGoCreer={w=>{ setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null, tone:w.tone, style:w.style, roadmapSug:w}); setActiveTab("creer"); }}
-        pubWeeks={pubWeeks}
-        selectedAxes={selectedAxes}
-        profile={profile}
-        showToast={showToast}
       />}
-      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast}       onMarkDone={weekNum=>setPubWeeks(p=>new Set([...p, Number(weekNum)]))}/>}
-      {activeTab==="mesposts"&& <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
-      {activeTab==="insights"&& <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
+      {activeTab==="creer"   && <CreerTab
+        profile={profile}
+        selectedAxes={selectedAxes}
+        prefill={creerPrefill}
+        onSavePost={p=>{ setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]); showToast("✓ Post sauvegardé"); }}
+        showToast={showToast}
+        onMarkDone={weekNum=>setPubWeeks(p=>new Set([...p,Number(weekNum)]))}
+      />}
+      {activeTab==="mesposts" && <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
+      {activeTab==="insights" && <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
     </main>
   </div>;
 }
