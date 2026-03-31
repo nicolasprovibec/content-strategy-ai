@@ -1068,7 +1068,7 @@ function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast,onMarkDone}
   return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)",overflow:"hidden"}}>
     <SubTabs tabs={TABS} active={activeTab} onChange={setActiveTab}/>
     <div style={{flex:1,overflow:"hidden"}}>
-                {activeTab==="generer"   && <GenererTab   profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser} onMarkDone={onMarkDone}/>}
+                {activeTab==="generer"   && <GenererTab key={JSON.stringify(prefill)} profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser} onMarkDone={onMarkDone}/>}
       {activeTab==="interview" && <InterviewTab basePost={basePost} setBasePost={setBasePost} enriched={enriched} setEnriched={setEnriched} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
       {activeTab==="analyser"  && <AnalyserTab  analyserPost={analyserPost} setAnalyserPost={setAnalyserPost} analysis={analysis} setAnalysis={setAnalysis} showToast={showToast} onGoOptimiser={goOptimiser} onSavePost={onSavePost}/>}
                 {activeTab==="optimiser" && <OptimiserTab optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} profile={profile}/>}
@@ -1312,12 +1312,23 @@ function AppShell() {
     <main style={{flex:1,overflow:"hidden"}}>
       {activeTab==="profil"  && <ProfilTab profile={profile} onSave={p=>{setProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
       {activeTab==="axes"    && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>setActiveTab("roadmap")}/>}
-      {activeTab==="roadmap" && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={setActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>setRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)setActiveRmId(nx.length?nx[0].id:null);return nx;})}
-        onRoadmapGenerated={rm=>{setRoadmaps(p=>[...p,rm]);setActiveRmId(rm.id);showToast("✓ Roadmap générée !");}}
-        onRoadmapUpdated={(id,weeks,dur)=>{setRoadmaps(p=>p.map(r=>r.id===id?{...r,weeks,dur,name:"Roadmap "+dur+"m — "+toDay()}:r));showToast("✓ Roadmap générée !");}}
-        onWeekUpdated={w=>{setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?w:x)}:r));}}
-        onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
-      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast} onMarkDone={weekNum=>setPubWeeks(p=>new Set([...p,weekNum]))}/>}
+      {activeTab==="roadmap" && <RoadmapTab
+        roadmaps={roadmaps}
+        activeRmId={activeRmId}
+        onSetActive={setActiveRmId}
+        onNewRoadmap={createRoadmap}
+        onRenameRoadmap={id=>{ const n=window.prompt("Nouveau nom :"); if(n?.trim()) setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r)); }}
+        onDeleteRoadmap={id=>setRoadmaps(p=>{ const nx=p.filter(r=>r.id!==id); if(activeRmId===id) setActiveRmId(nx.length?nx[0].id:null); return nx; })}
+        onRoadmapGenerated={rm=>{ setRoadmaps(p=>[...p,rm]); setActiveRmId(rm.id); showToast("✓ Roadmap générée !"); }}
+        onRoadmapUpdated={(id,weeks,dur)=>{ setRoadmaps(p=>p.map(r=>r.id===id?{...r,weeks,dur,name:"Roadmap "+dur+"m — "+toDay()}:r)); showToast("✓ Roadmap générée !"); }}
+        onWeekUpdated={w=>{ setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?w:x)}:r)); }}
+        onGoCreer={w=>{ setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null, tone:w.tone, style:w.style, roadmapSug:w}); setActiveTab("creer"); }}
+        pubWeeks={pubWeeks}
+        selectedAxes={selectedAxes}
+        profile={profile}
+        showToast={showToast}
+      />}
+      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast}       onMarkDone={weekNum=>setPubWeeks(p=>new Set([...p, Number(weekNum)]))}/>}
       {activeTab==="mesposts"&& <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
       {activeTab==="insights"&& <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
     </main>
