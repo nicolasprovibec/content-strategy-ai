@@ -321,8 +321,17 @@ function ProfilTab({profile,onSave,showToast,onAxesGenerated}) {
     if (!isValid) return;
     onSave(buildProfile()); setLoading(true);
     try {
-      const prompt="Nom : "+name+"\nVision : "+vision+"\nContexte : "+context+(audience?"\nAudience : "+audience:"")+(objectif?"\nObjectif : "+objectif:"")+(tonalites.length?"\nTonalités : "+tonalites.join(", "):"")+"\nGénère 6 axes de contenu LinkedIn stratégiques en français.";
-      const sys='Tu es un stratège LinkedIn. Réponds UNIQUEMENT en JSON valide. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.';
+      const prompt = `Tu dois générer 6 axes de contenu LinkedIn pour cette personne.
+
+PROFIL :
+- Nom : ${name}
+- Vision personnelle : ${vision}
+- Contexte : ${context}${audience ? "\n- Audience cible : "+audience : ""}${objectif ? "\n- Objectif : "+objectif : ""}${tonalites.length ? "\n- Tonalités : "+tonalites.join(", ") : ""}
+
+RÈGLE ABSOLUE : Les 6 axes DOIVENT découler directement de la vision et du contexte ci-dessus. Ne propose pas d'axes génériques sur l'IA, la blockchain ou les tendances tech sauf si c'est explicitement dans la vision. Chaque axe doit refléter ce que cette personne spécifique pense, vit et défend.
+
+Génère 6 axes thématiques précis, ancrés dans cette vision, avec un titre accrocheur et une description concrète.`;
+      const sys = 'Réponds UNIQUEMENT en JSON valide, sans texte avant ou après. Format : {"axes":[{"title":"...","description":"...","emoji":"..."}]} avec exactement 6 items.';
       const parsed=parseJSON(await callClaude(prompt,sys,900));
       if (parsed?.axes?.length) { onAxesGenerated({id:uid(),label:"Génération — "+toDay(),createdAt:toDay(),axes:parsed.axes.map(a=>({...a,id:uid()}))}); }
       else showToast("⚠️ Format inattendu, réessayez");
@@ -489,6 +498,8 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
   const [openQ,       setOpenQ]       = useState([0]);
   const [loading,     setLoading]     = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [editingWeek, setEditingWeek] = useState(null); // {week, theme, hook, axis, tone, style}
+  const [regenWeek,   setRegenWeek]   = useState(null); // id de la semaine en cours de regén
 
   const activeRm = roadmaps.find(r=>r.id===activeRmId)||roadmaps[0];
   const weeks    = activeRm?.weeks||[];
@@ -496,24 +507,75 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
   const quarters = [];
   for (let i=0;i<monthSet.length;i+=3) {
     const qM=monthSet.slice(i,i+3), qW=weeks.filter(w=>qM.includes(w.month));
-    quarters.push({index:i/3,months:qM,weeks:qW,done:qW.filter(w=>pubWeeks.has(w.week)).length,current:qW.find(w=>!pubWeeks.has(w.week))});
+    quarters.push({index:i/3,months:qM,weeks:qW,done:qW.filter(w=>pubWeeks.has(w.week)).length});
   }
 
   async function handleGen() {
     if (!selectedAxes.length) { showToast("⚠️ Sélectionnez des axes d'abord"); return; }
     setLoading(true); showToast("⏳ Génération en cours…");
     try {
-      const prompt="Profil : "+(profile?.name||"")+" — "+(profile?.vision||"")+"\nAxes : "+JSON.stringify(selectedAxes.map(a=>a.title))+"\nGénère une roadmap LinkedIn de "+dur+" mois ("+(dur*4)+" semaines).\nIMPORTANT : sois très concis, max 5 mots par champ.\nRéponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.";
-      const sys='{"weeks":[{"week":1,"month":"Mois 1","theme":"Titre court","detail":"Une phrase","axis":"Axe exact","tone":"Inspirant","style":"Storytelling","hook":"Accroche"}]}';
-      let parsed=parseJSON(await callClaude(prompt,sys,2500));
+      const axesList = selectedAxes.map(a=>`- ${a.title} : ${a.description}`).join("\n");
+      const prompt = `Tu es un expert en stratégie de contenu LinkedIn. Génère une roadmap éditoriale de ${dur} mois (${dur*4} semaines) pour cette personne.
+
+PROFIL :
+- Nom : ${profile?.name||""}
+- Vision : ${profile?.vision||""}
+- Contexte : ${profile?.context||""}${profile?.audience ? "\n- Audience : "+profile.audience : ""}
+
+AXES SÉLECTIONNÉS (utilise UNIQUEMENT ces axes, répartis équitablement) :
+${axesList}
+
+EXIGENCES STRICTES pour chaque semaine :
+- "theme" : titre accrocheur et précis en français (ex: "Pourquoi j'ai arrêté les réunions du lundi" ou "Ce que m'a appris mon premier licenciement"), JAMAIS générique
+- "hook" : première ligne du post, percutante, qui donne envie de lire (max 15 mots)
+- "angle" : l'angle éditorial précis (ex: "storytelling personnel", "opinion tranchée", "contre-intuitive")
+- "detail" : une phrase qui décrit le contenu concret du post
+- "axis" : reprend EXACTEMENT le titre d'un des axes sélectionnés ci-dessus
+- "tone" : un parmi Inspirant/Éducatif/Provocateur/Authentique/Expert
+- "style" : un parmi Storytelling/Liste Tips/Opinion tranchée/Étude de cas/Question ouverte
+- "month" : Mois 1, Mois 2, etc.
+- "week" : numéro de semaine (1 à ${dur*4})
+
+Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.`;
+      const sys = `{"weeks":[{"week":1,"month":"Mois 1","theme":"Titre accrocheur précis","hook":"Première ligne percutante","angle":"angle éditorial","detail":"Description concrète du contenu","axis":"Axe exact","tone":"Inspirant","style":"Storytelling"}]}`;
+      let parsed=parseJSON(await callClaude(prompt,sys,3000));
       if (parsed&&!parsed.weeks&&Array.isArray(parsed)) parsed={weeks:parsed};
-      if (parsed?.weeks?.length) { onRoadmapGenerated({id:uid(),name:"Roadmap "+dur+"m — "+toDay(),createdAt:toDay(),weeks:parsed.weeks,dur}); }
-      else showToast("⚠️ Format inattendu");
+      if (parsed?.weeks?.length) {
+        // Toujours remplir la roadmap active si elle existe (vide ou non = regénération)
+        // Créer une nouvelle seulement s'il n'y a aucune roadmap active
+        if (activeRm) {
+          onRoadmapUpdated(activeRm.id, parsed.weeks, dur);
+        } else {
+          onRoadmapGenerated({id:uid(),name:"Roadmap "+dur+"m — "+toDay(),createdAt:toDay(),weeks:parsed.weeks,dur});
+        }
+      } else showToast("⚠️ Format inattendu");
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
 
+  async function handleRegenWeek(w) {
+    setRegenWeek(w.week);
+    try {
+      const prompt = `Regénère UNIQUEMENT cette semaine de roadmap LinkedIn.
+
+PROFIL : ${profile?.name||""} — ${profile?.vision||""}
+AXE : ${w.axis}
+TON : ${w.tone}
+STYLE : ${w.style}
+
+Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNIQUEMENT en JSON.`;
+      const sys = `{"theme":"Nouveau titre accrocheur","hook":"Nouvelle première ligne","angle":"nouvel angle","detail":"Nouveau contenu concret","axis":"${w.axis}","tone":"${w.tone}","style":"${w.style}","week":${w.week},"month":"${w.month}"}`;
+      const parsed = parseJSON(await callClaude(prompt,sys,400));
+      if (parsed?.theme) {
+        onWeekUpdated({...w,...parsed,week:w.week,month:w.month});
+        showToast("✓ Carte regénérée");
+      }
+    } catch(e) { showToast("⚠️ "+e.message); }
+    setRegenWeek(null);
+  }
+
   return <div style={{display:"grid",gridTemplateColumns:sidebarOpen?"220px 1fr":"44px 1fr",height:"calc(100vh - 56px)",transition:"grid-template-columns 0.2s"}}>
+    {/* Sidebar */}
     <div style={{background:C.gray50,borderRight:"0.5px solid "+C.gray200,padding:"10px 0",display:"flex",flexDirection:"column",alignItems:sidebarOpen?"stretch":"center",gap:6,overflowY:"auto"}}>
       <button onClick={()=>setSidebarOpen(o=>!o)} style={{width:30,height:30,borderRadius:8,background:C.navy,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:sidebarOpen?"0 10px 8px":"0 auto 8px",border:"none"}}>
         <span style={{color:"#fff",fontSize:14,transform:sidebarOpen?"rotate(180deg)":"none",transition:"transform 0.2s"}}>›</span>
@@ -523,6 +585,8 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
       </div>)}
       {sidebarOpen?<Btn sm onClick={onNewRoadmap} style={{margin:"4px 8px 0"}}>+ Nouvelle</Btn>:<div onClick={onNewRoadmap} style={{width:28,height:28,borderRadius:6,border:"0.5px dashed "+C.gray200,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",margin:"0 auto"}}><span style={{fontSize:14,color:C.gray400}}>+</span></div>}
     </div>
+
+    {/* Main */}
     <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{height:48,background:C.gray50,borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",padding:"0 1.25rem",gap:10,flexShrink:0,flexWrap:"wrap"}}>
         {activeRm&&<React.Fragment><span style={{fontSize:12,fontWeight:500,color:C.gray900}}>{activeRm.name}</span><span style={{fontSize:10,padding:"2px 8px",background:C.navyLight,color:C.navy,borderRadius:20,fontWeight:500}}>Active</span></React.Fragment>}
@@ -538,6 +602,7 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
           <Btn sm onClick={handleGen} disabled={loading||!selectedAxes.length}>{loading?"Génération…":activeRm?.weeks?.length?"↺ Regénérer":"→ Générer"}</Btn>
         </div>
       </div>
+
       <div style={{flex:1,overflowY:"auto",padding:"1rem 1.25rem",background:C.gray50}}>
         {!selectedAxes.length&&<div style={{background:"#FEF3C7",border:"0.5px solid "+C.amber,borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#92400E"}}>⚠ Sélectionnez d'abord vos axes.</div>}
         {!(activeRm?.weeks?.length)?<Empty icon="🗓" text="Cliquez sur Générer pour créer votre première roadmap." btnLabel={selectedAxes.length?"Générer":null} onBtn={selectedAxes.length?handleGen:null}/>:
@@ -557,15 +622,59 @@ function RoadmapTab({roadmaps,activeRmId,onSetActive,onNewRoadmap,onRenameRoadma
                   {q.months.map(month=><div key={month}>
                     <div style={{fontSize:10,fontWeight:500,color:C.navy,textTransform:"uppercase",letterSpacing:".05em",marginBottom:8,paddingBottom:5,borderBottom:"0.5px solid "+C.gray200}}>{month}</div>
                     {q.weeks.filter(w=>w.month===month).map(w=>{
-                      const isDone=pubWeeks.has(w.week),isCur=q.current?.week===w.week;
-                      return <div key={w.week} style={{border:"0.5px solid "+(isCur?C.navy:C.gray200),borderRadius:7,padding:9,marginBottom:7,background:isCur?C.navyLight:"#fff",opacity:isDone?0.55:1}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                          <span style={{fontSize:10,color:C.gray400}}>Sem. {w.week}</span>
-                          {isDone?<span style={{fontSize:10,color:C.green,fontWeight:500}}>✓ Publié</span>:<button onClick={()=>onGoCreer(w)} style={{fontSize:10,color:C.navy,border:"0.5px solid "+C.navyMid,borderRadius:4,padding:"2px 6px",background:C.navyLight,cursor:"pointer",fontFamily:"inherit"}}>Créer →</button>}
+                      const isDone=pubWeeks.has(w.week);
+                      const isEditing=editingWeek?.week===w.week;
+                      const isRegening=regenWeek===w.week;
+                      return <div key={w.week} style={{border:"0.5px solid "+(isDone?C.green:C.gray200),borderRadius:8,marginBottom:8,background:isDone?"#F0FDF4":"#fff",overflow:"hidden"}}>
+                        {/* Header carte */}
+                        <div style={{padding:"8px 10px",borderBottom:"0.5px solid "+(isDone?C.green+"40":C.gray200)}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                            <span style={{fontSize:10,color:C.gray400}}>Sem. {w.week}</span>
+                            <span style={{padding:"1px 6px",background:isDone?"#D1FAE5":C.navyLight,color:isDone?C.green:C.navy,borderRadius:4,fontSize:9,fontWeight:500}}>{isDone?"✓ Post généré":w.axis}</span>
+                          </div>
+                          <p style={{fontSize:12,fontWeight:500,color:isDone?C.green:C.gray900,lineHeight:1.35}}>{w.theme}</p>
                         </div>
-                        <p style={{fontSize:12,fontWeight:500,lineHeight:1.3,marginBottom:3}}>{w.theme}</p>
-                        <p style={{fontSize:11,color:C.gray400,lineHeight:1.4,marginBottom:5}}>{w.detail}</p>
-                        <span style={{padding:"2px 6px",background:C.navyLight,color:C.navy,borderRadius:4,fontSize:10,fontWeight:500}}>{w.axis}</span>
+                        {/* Détail carte */}
+                        <div style={{padding:"8px 10px"}}>
+                          {w.hook&&<p style={{fontSize:11,color:C.navy,fontStyle:"italic",marginBottom:4,lineHeight:1.4}}>"{w.hook}"</p>}
+                          <p style={{fontSize:11,color:C.gray600,lineHeight:1.4,marginBottom:6}}>{w.detail||w.angle}</p>
+                          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:8}}>
+                            <span style={{padding:"1px 6px",background:C.gray100,color:C.gray600,borderRadius:4,fontSize:9}}>{w.tone}</span>
+                            <span style={{padding:"1px 6px",background:C.gray100,color:C.gray600,borderRadius:4,fontSize:9}}>{w.style}</span>
+                          </div>
+                          {/* Actions */}
+                          {!isDone&&<div style={{display:"flex",gap:5}}>
+                            <button onClick={()=>setEditingWeek(isEditing?null:{...w})} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"0.5px solid "+C.gray200,background:isEditing?C.navyLight:"#fff",color:isEditing?C.navy:C.gray600,cursor:"pointer",fontFamily:"inherit"}}>{isEditing?"✕ Fermer":"✏ Modifier"}</button>
+                            <button onClick={()=>handleRegenWeek(w)} disabled={isRegening} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"0.5px solid "+C.gray200,background:"#fff",color:C.gray600,cursor:"pointer",fontFamily:"inherit",opacity:isRegening?0.5:1}}>{isRegening?"…":"↺ Regén."}</button>
+                            <button onClick={()=>onGoCreer(w)} style={{flex:1,fontSize:10,padding:"4px 0",borderRadius:5,border:"none",background:C.navy,color:"#fff",cursor:"pointer",fontFamily:"inherit"}}>✦ Créer</button>
+                          </div>}
+                        </div>
+                        {/* Panneau édition inline */}
+                        {isEditing&&<div style={{padding:"8px 10px",background:C.gray50,borderTop:"0.5px solid "+C.gray200}}>
+                          <div style={{marginBottom:6}}>
+                            <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Thème</div>
+                            <input value={editingWeek.theme} onChange={e=>setEditingWeek(p=>({...p,theme:e.target.value}))} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
+                          </div>
+                          <div style={{marginBottom:6}}>
+                            <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Hook</div>
+                            <input value={editingWeek.hook||""} onChange={e=>setEditingWeek(p=>({...p,hook:e.target.value}))} style={{width:"100%",padding:"5px 8px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}/>
+                          </div>
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                            <div>
+                              <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Ton</div>
+                              <select value={editingWeek.tone} onChange={e=>setEditingWeek(p=>({...p,tone:e.target.value}))} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}>
+                                {TONES.map(t=><option key={t}>{t}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <div style={{fontSize:10,color:C.gray400,marginBottom:3}}>Style</div>
+                              <select value={editingWeek.style} onChange={e=>setEditingWeek(p=>({...p,style:e.target.value}))} style={{width:"100%",padding:"5px 6px",borderRadius:6,border:"0.5px solid "+C.gray200,fontSize:11,outline:"none",fontFamily:"inherit",background:"#fff"}}>
+                                {STYLES.map(s=><option key={s}>{s}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          <Btn sm full onClick={()=>{ onWeekUpdated({...w,...editingWeek}); setEditingWeek(null); showToast("✓ Carte mise à jour"); }}>Enregistrer</Btn>
+                        </div>}
                       </div>;
                     })}
                   </div>)}
@@ -593,7 +702,9 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setP
     setLoading(true);
     try {
       const extras=(profile.audience?"\nAudience : "+profile.audience:"")+(profile.objectif?"\nObjectif : "+profile.objectif:"")+(profile.tonalites?.length?"\nTonalités : "+profile.tonalites.join(", "):"")+(profile.eviter?"\nMots à éviter : "+profile.eviter:"");
-      const sug=prefill?.roadmapSug?"\nThème suggéré : "+prefill.roadmapSug.theme:"";
+      const sug = prefill?.roadmapSug
+        ? `\n\nCONTEXTE ROADMAP — respecte impérativement ces éléments :\n- Thème : ${prefill.roadmapSug.theme}\n- Hook (commence le post avec) : ${prefill.roadmapSug.hook||""}\n- Angle éditorial : ${prefill.roadmapSug.angle||""}\n- Contenu attendu : ${prefill.roadmapSug.detail||""}\nLe post doit s'appuyer directement sur ce thème et commencer par ce hook.`
+        : "";
       const prompt="Profil : "+profile.name+" — "+profile.vision+"\nContexte : "+profile.context+extras+"\nAxe : "+axis.title+" — "+axis.description+"\nTon : "+tone+"\nStyle : "+style+sug+"\nGénère le post LinkedIn.";
       setPost(await callClaude(prompt,LINKEDIN_RULES,1200));
     } catch(e) { showToast("⚠️ "+e.message); }
@@ -1176,7 +1287,11 @@ function AppShell() {
     <main style={{flex:1,overflow:"hidden"}}>
       {activeTab==="profil"  && <ProfilTab profile={profile} onSave={p=>{setProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
       {activeTab==="axes"    && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>setActiveTab("roadmap")}/>}
-      {activeTab==="roadmap" && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={setActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>setRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)setActiveRmId(nx.length?nx[0].id:null);return nx;})} onRoadmapGenerated={rm=>{setRoadmaps(p=>[...p,rm]);setActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}} onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
+      {activeTab==="roadmap" && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={setActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>setRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)setActiveRmId(nx.length?nx[0].id:null);return nx;})}
+        onRoadmapGenerated={rm=>{setRoadmaps(p=>[...p,rm]);setActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}}
+        onRoadmapUpdated={(id,weeks,dur)=>{setRoadmaps(p=>p.map(r=>r.id===id?{...r,weeks,dur,name:"Roadmap "+dur+"m — "+toDay()}:r));showToast("✓ Roadmap générée !");}}
+        onWeekUpdated={w=>setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?w:x)}:r))}
+        onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
       {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast}/>}
       {activeTab==="mesposts"&& <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
       {activeTab==="insights"&& <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
