@@ -538,7 +538,7 @@ EXIGENCES STRICTES pour chaque semaine :
 
 Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ou après.`;
       const sys = `{"weeks":[{"week":1,"month":"Mois 1","theme":"Titre accrocheur précis","hook":"Première ligne percutante","angle":"angle éditorial","detail":"Description concrète du contenu","axis":"Axe exact","tone":"Inspirant","style":"Storytelling"}]}`;
-      let parsed=parseJSON(await callClaude(prompt,sys,3000));
+      let parsed=parseJSON(await callClaude(prompt,sys,2500));
       if (parsed&&!parsed.weeks&&Array.isArray(parsed)) parsed={weeks:parsed};
       if (parsed?.weeks?.length) {
         // Toujours remplir la roadmap active si elle existe (vide ou non = regénération)
@@ -689,32 +689,43 @@ Génère un nouveau thème, hook et angle différents pour cet axe. Réponds UNI
 }
 
 // ─── GÉNÉRER — 2 colonnes ─────────────────────────────────────────
-function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setPost,onGoInterview,onGoAnalyser,onGoOptimiser}) {
+function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setPost,onGoInterview,onGoAnalyser,onGoOptimiser,onMarkDone}) {
   const [axis,    setAxis]    = useState(prefill?.axis||selectedAxes[0]||null);
   const [tone,    setTone]    = useState(prefill?.tone||"");
   const [style,   setStyle]   = useState(prefill?.style||"");
+  const [theme,   setTheme]   = useState(prefill?.roadmapSug?.theme||"");
+  const [hook,    setHook]    = useState(prefill?.roadmapSug?.hook||"");
   const [loading, setLoading] = useState(false);
 
-  useEffect(()=>{ if(prefill?.axis) setAxis(prefill.axis); if(prefill?.tone) setTone(prefill.tone); if(prefill?.style) setStyle(prefill.style); },[prefill]);
+  useEffect(()=>{
+    if(prefill?.axis)  setAxis(prefill.axis);
+    if(prefill?.tone)  setTone(prefill.tone);
+    if(prefill?.style) setStyle(prefill.style);
+    if(prefill?.roadmapSug?.theme) setTheme(prefill.roadmapSug.theme);
+    if(prefill?.roadmapSug?.hook)  setHook(prefill.roadmapSug.hook);
+  },[prefill]);
 
   async function handleGen() {
     if (!axis||!tone||!style||!profile) return;
     setLoading(true);
     try {
       const extras=(profile.audience?"\nAudience : "+profile.audience:"")+(profile.objectif?"\nObjectif : "+profile.objectif:"")+(profile.tonalites?.length?"\nTonalités : "+profile.tonalites.join(", "):"")+(profile.eviter?"\nMots à éviter : "+profile.eviter:"");
-      const sug = prefill?.roadmapSug
-        ? `\n\nCONTEXTE ROADMAP — respecte impérativement ces éléments :\n- Thème : ${prefill.roadmapSug.theme}\n- Hook (commence le post avec) : ${prefill.roadmapSug.hook||""}\n- Angle éditorial : ${prefill.roadmapSug.angle||""}\n- Contenu attendu : ${prefill.roadmapSug.detail||""}\nLe post doit s'appuyer directement sur ce thème et commencer par ce hook.`
+      const roadmapCtx = theme
+        ? `\n\nCONTEXTE ÉDITORIAL — respecte impérativement :\n- Thème : ${theme}\n${hook?`- Commence le post par ce hook : "${hook}"\n`:""}- Ton : ${tone}\n- Style : ${style}\nLe post doit s'appuyer directement sur ce thème${hook?" et commencer par ce hook":""}.`
         : "";
-      const prompt="Profil : "+profile.name+" — "+profile.vision+"\nContexte : "+profile.context+extras+"\nAxe : "+axis.title+" — "+axis.description+"\nTon : "+tone+"\nStyle : "+style+sug+"\nGénère le post LinkedIn.";
-      setPost(await callClaude(prompt,LINKEDIN_RULES,1200));
+      const prompt=`Profil : ${profile.name} — ${profile.vision}\nContexte : ${profile.context}${extras}\nAxe : ${axis.title} — ${axis.description}${roadmapCtx}\nTon : ${tone}\nStyle : ${style}\n\nGénère le post LinkedIn complet.`;
+      const txt = await callClaude(prompt,LINKEDIN_RULES,1200);
+      setPost(txt);
+      // Marquer la carte roadmap comme "post généré" si on vient d'une roadmap
+      if (prefill?.roadmapSug && onMarkDone) onMarkDone(prefill.roadmapSug.week);
     } catch(e) { showToast("⚠️ "+e.message); }
     setLoading(false);
   }
 
   return <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",height:"100%",overflow:"hidden"}}>
-    {/* Colonne gauche : paramètres */}
+    {/* Colonne gauche */}
     <div style={{background:"#fff",borderRight:"0.5px solid "+C.gray200,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-      <div style={{flex:1,overflowY:"auto",padding:"1.25rem",display:"flex",flexDirection:"column",gap:16}}>
+      <div style={{flex:1,overflowY:"auto",padding:"1.25rem",display:"flex",flexDirection:"column",gap:14}}>
         <div>
           <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Axe</div>
           {selectedAxes.length>0?selectedAxes.map(a=><div key={a.id} onClick={()=>setAxis(a)} style={{padding:"8px 10px",borderRadius:8,cursor:"pointer",fontSize:12,border:"1.5px solid "+(axis?.id===a.id?C.navy:C.gray200),background:axis?.id===a.id?C.navyLight:"#fff",fontWeight:axis?.id===a.id?500:400,color:axis?.id===a.id?C.navy:C.gray900,marginBottom:5}}>{a.emoji} {a.title}</div>):<p style={{fontSize:12,color:C.gray400}}>Aucun axe sélectionné.</p>}
@@ -727,12 +738,26 @@ function GenererTab({profile,selectedAxes,prefill,onSavePost,showToast,post,setP
           <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>Style</div>
           {STYLES.map(s=><Tag key={s} label={s} active={style===s} onClick={()=>setStyle(s)}/>)}
         </div>
+        {/* Champs contexte éditorial — pré-remplis depuis roadmap ou libres */}
+        <div style={{borderTop:"0.5px solid "+C.gray200,paddingTop:14}}>
+          <div style={{fontSize:10,fontWeight:500,color:C.gray400,textTransform:"uppercase",letterSpacing:".06em",marginBottom:10}}>
+            Contexte éditorial <span style={{fontSize:9,color:C.green,fontWeight:400,textTransform:"none",letterSpacing:0}}>{prefill?.roadmapSug?"• depuis roadmap":""}</span>
+          </div>
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Thème / idée</div>
+            <input value={theme} onChange={e=>setTheme(e.target.value)} placeholder="Ex : Pourquoi j'ai arrêté les réunions du lundi" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+(theme?C.navyMid:C.gray200),fontSize:12,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:500,color:C.gray600,marginBottom:4}}>Hook suggéré <span style={{fontWeight:400,color:C.gray400}}>(optionnel)</span></div>
+            <input value={hook} onChange={e=>setHook(e.target.value)} placeholder="Ex : J'ai fait une erreur qui m'a coûté 2 associés." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid "+(hook?C.navyMid:C.gray200),fontSize:12,outline:"none",fontFamily:"inherit",background:C.gray50}}/>
+          </div>
+        </div>
       </div>
       <div style={{padding:"1rem 1.25rem",borderTop:"0.5px solid "+C.gray200,flexShrink:0}}>
         <Btn onClick={handleGen} disabled={!axis||!tone||!style||loading} full>{loading?"Génération…":"✦ Générer le post"}</Btn>
       </div>
     </div>
-    {/* Colonne droite : post */}
+    {/* Colonne droite */}
     <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{padding:"10px 16px",borderBottom:"0.5px solid "+C.gray200,display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",flexShrink:0}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:12,fontWeight:500}}>Post généré</span>{post&&<CharBadge n={post.length}/>}</div>
@@ -1025,7 +1050,7 @@ function OptimiserTab({optimiserPost,setOptimiserPost,onSavePost,showToast,onGoA
 }
 
 // ─── CRÉER ────────────────────────────────────────────────────────
-function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
+function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast,onMarkDone}) {
   const [activeTab,     setActiveTab]     = useState("generer");
   const [genPost,       setGenPost]       = useState("");
   const [basePost,      setBasePost]      = useState("");
@@ -1043,7 +1068,7 @@ function CreerTab({profile,selectedAxes,prefill,onSavePost,showToast}) {
   return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)",overflow:"hidden"}}>
     <SubTabs tabs={TABS} active={activeTab} onChange={setActiveTab}/>
     <div style={{flex:1,overflow:"hidden"}}>
-      {activeTab==="generer"   && <GenererTab   profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
+                {activeTab==="generer"   && <GenererTab   profile={profile} selectedAxes={selectedAxes} prefill={prefill} onSavePost={onSavePost} showToast={showToast} post={genPost} setPost={setGenPost} onGoInterview={goInterview} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser} onMarkDone={onMarkDone}/>}
       {activeTab==="interview" && <InterviewTab basePost={basePost} setBasePost={setBasePost} enriched={enriched} setEnriched={setEnriched} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} onGoOptimiser={goOptimiser}/>}
       {activeTab==="analyser"  && <AnalyserTab  analyserPost={analyserPost} setAnalyserPost={setAnalyserPost} analysis={analysis} setAnalysis={setAnalysis} showToast={showToast} onGoOptimiser={goOptimiser} onSavePost={onSavePost}/>}
                 {activeTab==="optimiser" && <OptimiserTab optimiserPost={optimiserPost} setOptimiserPost={setOptimiserPost} onSavePost={onSavePost} showToast={showToast} onGoAnalyser={goAnalyser} profile={profile}/>}
@@ -1288,11 +1313,11 @@ function AppShell() {
       {activeTab==="profil"  && <ProfilTab profile={profile} onSave={p=>{setProfile(p);showToast("✓ Profil sauvegardé");}} showToast={showToast} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ 6 axes générés !");setActiveTab("axes");}}/>}
       {activeTab==="axes"    && <AxesTab axesSessions={axesSessions} favAxes={favAxes} selectedAxes={selectedAxes} onToggleAxis={a=>setSelectedAxes(p=>p.find(x=>x.id===a.id)?p.filter(x=>x.id!==a.id):[...p,a])} onToggleFav={id=>setFavAxes(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id])} onDeleteAxis={handleDeleteAxis} onAxesGenerated={s=>{setAxesSessions(p=>[s,...p]);showToast("✓ Axes générés !");}} profile={profile} showToast={showToast} onGoRoadmap={()=>setActiveTab("roadmap")}/>}
       {activeTab==="roadmap" && <RoadmapTab roadmaps={roadmaps} activeRmId={activeRmId} onSetActive={setActiveRmId} onNewRoadmap={createRoadmap} onRenameRoadmap={id=>{const n=window.prompt("Nouveau nom :");if(n?.trim())setRoadmaps(p=>p.map(r=>r.id===id?{...r,name:n.trim()}:r));}} onDeleteRoadmap={id=>setRoadmaps(p=>{const nx=p.filter(r=>r.id!==id);if(activeRmId===id)setActiveRmId(nx.length?nx[0].id:null);return nx;})}
-        onRoadmapGenerated={rm=>{setRoadmaps(p=>[...p,rm]);setActiveRmId(rm.id);showToast("✓ Roadmap générée !");setActiveTab("roadmap");}}
+        onRoadmapGenerated={rm=>{setRoadmaps(p=>[...p,rm]);setActiveRmId(rm.id);showToast("✓ Roadmap générée !");}}
         onRoadmapUpdated={(id,weeks,dur)=>{setRoadmaps(p=>p.map(r=>r.id===id?{...r,weeks,dur,name:"Roadmap "+dur+"m — "+toDay()}:r));showToast("✓ Roadmap générée !");}}
-        onWeekUpdated={w=>setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?w:x)}:r))}
+        onWeekUpdated={w=>{setRoadmaps(p=>p.map(r=>r.id===activeRmId?{...r,weeks:r.weeks.map(x=>x.week===w.week?w:x)}:r));}}
         onGoCreer={w=>{setCreerPrefill({axis:selectedAxes.find(a=>a.title===w.axis)||selectedAxes[0]||null,tone:w.tone,style:w.style,roadmapSug:w});setActiveTab("creer");}} pubWeeks={pubWeeks} selectedAxes={selectedAxes} profile={profile} showToast={showToast}/>}
-      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast}/>}
+      {activeTab==="creer"   && <CreerTab profile={profile} selectedAxes={selectedAxes} prefill={creerPrefill} onSavePost={p=>{setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev]);showToast("✓ Post sauvegardé dans Mes posts");}} showToast={showToast} onMarkDone={weekNum=>setPubWeeks(p=>new Set([...p,weekNum]))}/>}
       {activeTab==="mesposts"&& <MesPostsTab posts={posts} onDelete={id=>setPosts(p=>p.filter(x=>x.id!==id))} onAdd={p=>setPosts(prev=>[{...p,id:uid(),date:toDay()},...prev])}/>}
       {activeTab==="insights"&& <InsightsTab insights={insights} posts={posts} onAddInsight={i=>setInsights(p=>[{...i,id:uid(),date:toDay()},...p])} onDeleteInsight={id=>setInsights(p=>p.filter(x=>x.id!==id))} showToast={showToast}/>}
     </main>
