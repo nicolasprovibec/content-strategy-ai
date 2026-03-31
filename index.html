@@ -1095,7 +1095,7 @@ function AppShell() {
   const [selectedAxes, setSelectedAxes] = useState([]);
   const [roadmaps,     setRoadmaps]     = useState([]);
   const [activeRmId,   setActiveRmId]   = useState(null);
-  const [pubWeeks,     setPubWeeks]     = useState(new Set());
+  const [pubWeeks,     setPubWeeks]     = useState({}); // { [roadmapId]: Set<weekNum> }
   const [posts,        setPosts]        = useState([]);
   const [insights,     setInsights]     = useState([]);
   const [creerPrefill, setCreerPrefill] = useState(null);
@@ -1115,7 +1115,7 @@ function AppShell() {
         if(d.selectedAxes) setSelectedAxes(d.selectedAxes);
         if(d.roadmaps)     setRoadmaps(d.roadmaps);
         if(d.activeRmId)   setActiveRmId(d.activeRmId);
-        if(d.pubWeeks)     setPubWeeks(new Set(d.pubWeeks));
+        if(d.pubWeeks)     setPubWeeks(d.pubWeeks instanceof Array ? {} : (d.pubWeeks||{}));
         if(d.posts)        setPosts(d.posts);
         if(d.insights)     setInsights(d.insights);
         showToast("✓ Données chargées");
@@ -1129,7 +1129,7 @@ function AppShell() {
     if (!dataLoaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current=setTimeout(()=>{
-      saveUserData({profile,axesSessions,favAxes,selectedAxes,roadmaps,activeRmId,pubWeeks:Array.from(pubWeeks),posts,insights});
+      saveUserData({profile,axesSessions,favAxes,selectedAxes,roadmaps,activeRmId,pubWeeks,posts,insights});
     },800);
     return ()=>clearTimeout(saveTimer.current);
   },[profile,axesSessions,favAxes,selectedAxes,roadmaps,activeRmId,pubWeeks,posts,insights,dataLoaded]);
@@ -1168,7 +1168,7 @@ function AppShell() {
         activeRmId={activeRmId}
         selectedAxes={selectedAxes}
         profile={profile}
-        pubWeeks={pubWeeks}
+        pubWeeks={new Set(pubWeeks[activeRmId]||[])}
         showToast={showToast}
         onSetActive={setActiveRmId}
         onNewRoadmap={createRoadmap}
